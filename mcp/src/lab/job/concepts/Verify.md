@@ -48,9 +48,9 @@ the instrument that fits what the work is:
   `cwd: "{{ input.dir }}"` (a repository is a subdirectory of it), running
   it as its user would — a command that exits 0 when the claim holds.
   Never an install, a build, a type-check or a test suite there.
-- Tests you were asked to add or fix, on a pod: `pod/run-tests` with the
-  pod's `control` and `sealed`. It names that pod: after you claim
-  another, edit the check (`meta/edit-check`).
+- Tests you were asked to add or fix, on a pod: `pod/run-tests` naming no
+  pod: it runs on whichever pod the job holds as its own when it runs, so
+  it holds after you claim again.
 - What cannot run here — no pod holds the app the change is in — or what
   only a person can judge (does it look right, is it what they meant): an
   external check, `{ description }` saying what the person should open and

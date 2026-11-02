@@ -1,5 +1,5 @@
 import { z, defineStep } from "strut";
-import { failure, gitCredentials, settle, submit, type PodCtx } from "./_shared.js";
+import { failure, gitCredentials, settle, submit, POD_REF, podAccess, type PodCtx } from "./_shared.js";
 
 const Repo = z.object({
   url: z.string().min(1).describe("The repository as the pod knows it: https://github.com/<owner>/<name>.git"),
@@ -14,8 +14,7 @@ export default defineStep({
     "left them — and to start a task from a fresh base. Everything uncommitted in those repositories is lost. Waits for the pod (default 15 min); the run's GitHub " +
     "token authenticates the fetch when it has one. Output: { request_id, credentials: actor | pool, repos }.",
   input: z.object({
-    control: z.string().min(1).describe("The pod's control URL (pod/claim)"),
-    sealed: z.string().min(1).describe("The pod's sealed password (pod/claim)"),
+    ...POD_REF,
     repos: z.array(Repo).min(1).describe("The repositories to reset, in order"),
     githubTokenSecret: z.string().default("GITHUB_TOKEN").describe("NAME of the secret with the run's GitHub token"),
     pollMs: z.number().int().positive().default(5000),
@@ -27,11 +26,12 @@ export default defineStep({
     repos: z.array(Repo),
   }),
   async run(cfg, ctx: PodCtx) {
+    const pod = await podAccess(ctx, cfg);
     const creds = await gitCredentials(ctx, cfg.githubTokenSecret);
     const repos = cfg.repos.map((r) => (r.base_branch ? { url: r.url, base_branch: r.base_branch } : { url: r.url }));
     const body = { tasks: [], repos, ...(creds ? { git_credentials: creds } : {}) };
-    const first = await submit(ctx, cfg.control, cfg.sealed, "/latest", "PUT", body);
-    const p = await settle(ctx, cfg.control, cfg.sealed, first, { pollMs: cfg.pollMs, timeoutMs: cfg.timeoutMs, what: "pod/latest" });
+    const first = await submit(ctx, pod.control, pod.sealed, "/latest", "PUT", body);
+    const p = await settle(ctx, pod.control, pod.sealed, first, { pollMs: cfg.pollMs, timeoutMs: cfg.timeoutMs, what: "pod/latest" });
     if (p.status === "failed") {
       throw new Error(`pod/latest: ${failure(p.body)} (the pod resets repositories one after another with no per-repository result; some may have been reset)`);
     }

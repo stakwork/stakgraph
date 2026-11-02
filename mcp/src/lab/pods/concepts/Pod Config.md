@@ -51,7 +51,7 @@ its pull request merges: until then a fresh pod lacks the code the config
 relies on. The merge reaches you as a turn (`[artifact-event] pull_request
 <url> merged`); promote from there.
 
-**Promotion asks first.** `pod/config { workspace, control, sealed }` returns
+**Promotion asks first.** `pod/config { workspace, podId }` returns
 hive's config, the pod's files and a diff of each. End the turn with an
 `ask`: the diff, what you verified, and whether to apply it to every pod of
 the workspace. A pool config change recreates every unused pod of the
@@ -71,8 +71,7 @@ changed. No credential is promoted: when the app needs a key, say which, and
 a person sets it in hive. pod/config-set waits until a pod built from the
 change is ready.
 
-**Run the pool's config in your pod.** `pod/config-apply { workspace,
-control, sealed }` writes hive's stored files into the pod you hold and
+**Run the pool's config in your pod.** `pod/config-apply { workspace }` writes hive's stored files into the pod you hold and
 reloads it, with no new pod: after a promotion it brings your pod in line
 with every other, and after trying things in the pod it puts the pool's
 config back. It is not the check below: what was made by hand in your pod
@@ -80,7 +79,8 @@ is still there.
 
 **Check it on a fresh pod.** `pod/claim { workspace, fresh: true }` claims a
 second pod, built after the push (`no fresh pod ready yet`: try again
-shortly). Run the same check there. It catches what was made by hand: a
+shortly). Run the same check there, naming it by `podId` in every pod tool
+(with none named they drive the job's own pod). It catches what was made by hand: a
 bucket or a table created in the first pod exists only there, and the fix is
 not done until creating it is in the config (the service's `postStart`, or a
 service in the compose file that sets it up). When the check fails, fix

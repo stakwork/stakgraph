@@ -1,5 +1,5 @@
 import { z, defineStep } from "strut";
-import { brief, gitCredentials, podCall, type PodCtx } from "./_shared.js";
+import { POD_REF, brief, gitCredentials, podAccess, podCall, type PodCtx } from "./_shared.js";
 
 /**
  * Record the pull request on the job's hold of the pod it was pushed from
@@ -42,8 +42,7 @@ export default defineStep({
     "a pull request with nothing ahead of the base fails. A pull request the pod could not open fails this step with the pod's reason: fix what it names and call pod/push again — " +
     "never have the agent in the pod open it. Output: { branch, pr_url (null without a pull request), commits: a link to each pushed head commit }.",
   input: z.object({
-    control: z.string().min(1).describe("The pod's control URL (pod/claim)"),
-    sealed: z.string().min(1).describe("The pod's sealed password (pod/claim)"),
+    ...POD_REF,
     repo_url: z.string().min(1).describe("The repository as the pod knows it: https://github.com/<owner>/<name>.git"),
     branch_name: z.string().min(1).describe("The branch to push: a new one for a new change; ignored with stay_on_branch"),
     commit_message: z.string().min(1).describe("The commit message; its first sentence titles the pull request"),
@@ -59,6 +58,7 @@ export default defineStep({
     commits: z.array(z.string()),
   }),
   async run(cfg, ctx: PodCtx) {
+    const pod = await podAccess(ctx, cfg);
     const creds = await gitCredentials(ctx, cfg.githubTokenSecret);
     if (!creds) throw new Error(`pod/push: no ${cfg.githubTokenSecret} for this run — the pod pushes as the run's GitHub identity, and it has none`);
     const q = new URLSearchParams({ commit: "true", pr: String(cfg.create_pr) });
@@ -69,7 +69,7 @@ export default defineStep({
       repos: [{ url: cfg.repo_url, branch_name: cfg.branch_name, commit_name: cfg.commit_message, ...(cfg.base_branch ? { base_branch: cfg.base_branch } : {}) }],
       git_credentials: creds,
     };
-    const res = await podCall(ctx, cfg.control, cfg.sealed, path, { method: "POST", body, timeout: cfg.timeoutMs });
+    const res = await podCall(ctx, pod.control, pod.sealed, path, { method: "POST", body, timeout: cfg.timeoutMs });
     if (!res.ok) throw new Error(`POST ${path}: ${res.status} — ${brief(res.body)}`);
     const b: any = res.body ?? {};
     if (b.error) throw new Error(`pod/push: ${b.message ?? b.error}`);
@@ -84,7 +84,7 @@ export default defineStep({
     }
     if (!branch) throw new Error(`pod/push: the pod reported no branch: ${brief(b)}`);
     if (cfg.create_pr && !pr_url) throw new Error(`pod/push: pushed ${branch} but the pod reported no pull request: ${brief(b)}`);
-    if (pr_url) await notePullRequest(ctx, cfg.control, pr_url);
+    if (pr_url) await notePullRequest(ctx, pod.control, pr_url);
     return { branch, pr_url, commits: Array.isArray(b.commits) ? b.commits.map(String) : [] };
   },
 });

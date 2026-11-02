@@ -1,5 +1,5 @@
 import { z, defineStep } from "strut";
-import { failure, settle, submit, type PodCtx } from "./_shared.js";
+import { POD_REF, failure, podAccess, settle, submit, type PodCtx } from "./_shared.js";
 import { FILES, readStored } from "./_pool.js";
 
 export default defineStep({
@@ -17,8 +17,7 @@ export default defineStep({
     "rebuildNeeded, processes: [{ name, status }], request_id }.",
   input: z.object({
     workspace: z.string().min(1).describe("The hive workspace, by its slug (no `@`) — the one given to pod/claim"),
-    control: z.string().min(1).describe("The pod's control URL (pod/claim)"),
-    sealed: z.string().min(1).describe("The pod's sealed password (pod/claim)"),
+    ...POD_REF,
     pollMs: z.number().int().positive().default(5000),
     timeoutMs: z.number().int().positive().default(1_800_000),
   }),
@@ -43,6 +42,7 @@ export default defineStep({
   async run(cfg, ctx: PodCtx) {
     // Read in code and sent on: the stored files carry the env values in
     // clear, so they go from hive to the pod and never into the output.
+    const pod = await podAccess(ctx, cfg);
     const stored = await readStored(ctx, cfg.workspace);
     const files = FILES.flatMap((name) => (stored.files[name] ? [{ name, content: stored.files[name]! }] : []));
     if (!files.some((f) => f.name === "pm2.config.js")) {
@@ -50,7 +50,7 @@ export default defineStep({
     }
     let first;
     try {
-      first = await submit(ctx, cfg.control, cfg.sealed, "/pod-config", "PUT", { files });
+      first = await submit(ctx, pod.control, pod.sealed, "/pod-config", "PUT", { files });
     } catch (err) {
       if (err instanceof Error && /^PUT \/pod-config: 404\b/.test(err.message)) {
         throw new Error(
@@ -60,7 +60,7 @@ export default defineStep({
       }
       throw err;
     }
-    const p = await settle(ctx, cfg.control, cfg.sealed, first, {
+    const p = await settle(ctx, pod.control, pod.sealed, first, {
       pollMs: cfg.pollMs,
       timeoutMs: cfg.timeoutMs,
       what: "pod/config-apply",

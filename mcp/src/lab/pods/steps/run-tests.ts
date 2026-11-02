@@ -1,5 +1,5 @@
 import { z, defineStep } from "strut";
-import { capText, failure, settle, submit, type PodCtx } from "./_shared.js";
+import { capText, failure, settle, submit, POD_REF, podAccess, type PodCtx } from "./_shared.js";
 
 export default defineStep({
   type: "pod/run-tests",
@@ -7,11 +7,10 @@ export default defineStep({
     "Run the pod's configured test commands (one per app) and report per app whether they passed, with the tail of each output; the full logs go to the " +
     "run's artifacts (`log_path`). Never fails on red tests — read `success`. `ran: 0` means no app on the pod has a test command. Waits (default 1 h). " +
     "Also a claim's check (strut plans/job-claims.md): when tests ran it answers `supports` (every app passed) and `content`; when none ran, or the pod " +
-    "could not run them, it gives no verdict, which the verify pass reads as cannot-run — never as the work failing. A check naming this pod's `control` " +
-    "and `sealed` holds while the job holds this pod: after claiming another, edit the check.",
+    "could not run them, it gives no verdict, which the verify pass reads as cannot-run — never as the work failing. A job check " +
+    "names no pod: it runs on the job's own pod, whichever that is when it runs, so it holds across a pod claimed again.",
   input: z.object({
-    control: z.string().min(1).describe("The pod's control URL (pod/claim)"),
-    sealed: z.string().min(1).describe("The pod's sealed password (pod/claim)"),
+    ...POD_REF,
     label: z.string().default("run").describe("Prefix for the log files, e.g. baseline / after"),
     tailChars: z.number().int().positive().default(4000),
     pollMs: z.number().int().positive().default(5000),
@@ -27,8 +26,9 @@ export default defineStep({
     content: z.string().optional().describe("as a claim's check: how many apps passed, and which failed"),
   }),
   async run(cfg, ctx: PodCtx) {
-    const first = await submit(ctx, cfg.control, cfg.sealed, "/test", "PUT");
-    const p = await settle(ctx, cfg.control, cfg.sealed, first, { pollMs: cfg.pollMs, timeoutMs: cfg.timeoutMs, what: "pod/run-tests" });
+    const pod = await podAccess(ctx, cfg);
+    const first = await submit(ctx, pod.control, pod.sealed, "/test", "PUT");
+    const p = await settle(ctx, pod.control, pod.sealed, first, { pollMs: cfg.pollMs, timeoutMs: cfg.timeoutMs, what: "pod/run-tests" });
     if (p.status === "failed") {
       return { success: false, ran: 0, apps: [], request_id: first.requestId, error: `the pod could not run its tests: ${failure(p.body)}` };
     }

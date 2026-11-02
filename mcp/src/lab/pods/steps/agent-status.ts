@@ -1,5 +1,5 @@
 import { z, defineStep, withMessages } from "strut";
-import { agentOutcome, agentTranscript, progress, type PodCtx } from "./_shared.js";
+import { agentOutcome, agentTranscript, progress, POD_REF, podAccess, type PodCtx } from "./_shared.js";
 
 export default defineStep({
   type: "pod/agent-status",
@@ -8,8 +8,7 @@ export default defineStep({
     "agent said (long outputs are cut in the middle) and `summary` its own summary when it wrote one; when failed, `error` says why. An agent that " +
     "crashed (a model call refused, a tool that died) still reports completed, its message in `output` — read it. Never fails on a failed task — read `status`.",
   input: z.object({
-    control: z.string().min(1).describe("The pod's control URL (pod/claim)"),
-    sealed: z.string().min(1).describe("The pod's sealed password (pod/claim)"),
+    ...POD_REF,
     request_id: z.string().min(1).describe("From pod/agent-start"),
     outputChars: z.number().int().positive().default(20_000).describe("Cap on `output`"),
   }),
@@ -22,7 +21,8 @@ export default defineStep({
     error: z.string().nullable(),
   }),
   async run(cfg, ctx: PodCtx) {
-    const out = agentOutcome(await progress(ctx, cfg.control, cfg.sealed, cfg.request_id), cfg.outputChars);
+    const pod = await podAccess(ctx, cfg);
+    const out = agentOutcome(await progress(ctx, pod.control, pod.sealed, cfg.request_id), cfg.outputChars);
     // A completed task's output is the agent's transcript (its prompt was
     // pod/agent-start's): marked like pod/agent's, so the job timeline shows
     // the resumed agent as a thread of its own.

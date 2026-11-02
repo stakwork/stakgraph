@@ -1,5 +1,5 @@
 import { z, defineStep } from "strut";
-import { brief, podCall, type PodCtx } from "./_shared.js";
+import { brief, podCall, POD_REF, podAccess, type PodCtx } from "./_shared.js";
 import { File, capFiles } from "./diff.js";
 
 export default defineStep({
@@ -10,16 +10,16 @@ export default defineStep({
     "base shows only its uncommitted work (what pod/diff shows); one whose base cannot be found is left out. Read it before pushing, and to describe a " +
     "pull request. Output: { files: [{ file, action, repoName, content }], total }.",
   input: z.object({
-    control: z.string().min(1).describe("The pod's control URL (pod/claim)"),
-    sealed: z.string().min(1).describe("The pod's sealed password (pod/claim)"),
+    ...POD_REF,
     base: z.string().min(1).optional().describe("The branch to diff against; the repository's default branch when omitted"),
     perFile: z.number().int().positive().default(6000).describe("Cap on one file's content"),
     maxFiles: z.number().int().positive().default(50).describe("How many files to list; `total` counts them all"),
   }),
   output: z.object({ files: z.array(File), total: z.number() }),
   async run(cfg, ctx: PodCtx) {
+    const pod = await podAccess(ctx, cfg);
     const path = `/branch-diff${cfg.base ? `?base=${encodeURIComponent(cfg.base)}` : ""}`;
-    const res = await podCall(ctx, cfg.control, cfg.sealed, path);
+    const res = await podCall(ctx, pod.control, pod.sealed, path);
     if (!res.ok) throw new Error(`GET ${path}: ${res.status} — ${brief(res.body)}`);
     return capFiles(res.body, cfg.perFile, cfg.maxFiles);
   },

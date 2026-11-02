@@ -28,13 +28,19 @@
  *    config is refused before anything is written; `pod/claim { fresh: true }`
  *    waits out a 409, holds the second pod, and gives back a pod a hive that
  *    predates fresh claims hands out; no stored env value reaches strut's
- *    record.
+ *    record;
+ *  - the hold keeps the pod's way in: a step on the job given nothing drives
+ *    the job's own pod, and one given a `sealed` the model miscopied still
+ *    opens the pod; on an EMPTY pool a claim frees the pod of a job idle past
+ *    IDLE_MINUTES (strut's own job index: no run in flight, nothing done
+ *    since) as that job, never one used just now, and that job's next turn
+ *    hears its pod is gone.
  *
  *   npx tsx src/lab/pods/smoke.ts
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { WorkspaceManager, buildRegistry, createStrut, jobsCapability, standardServices, type Strut } from "strut";
@@ -116,12 +122,16 @@ interface Pool {
   changeId: string | null;
   readsSincePut: number;
   freshClaims: number;
+  /** Every pod is claimed: claim-pod answers 503 until a pod is dropped. */
+  empty: boolean;
+  /** Pods dropped while empty, handed out again in order. */
+  freed: string[];
 }
 
 async function standIn(): Promise<{ base: string; seen: Seen[]; posts: any[]; pool: Pool; close: () => void }> {
   const seen: Seen[] = [];
   const posts: any[] = [];
-  const pool: Pool = { puts: [], changeId: null, readsSincePut: 0, freshClaims: 0 };
+  const pool: Pool = { puts: [], changeId: null, readsSincePut: 0, freshClaims: 0, empty: false, freed: [] };
   const polls = new Map<string, number>();
   let agents = 0;
   let base = "";
@@ -180,12 +190,15 @@ async function standIn(): Promise<{ base: string; seen: Seen[]; posts: any[]; po
             if (++pool.freshClaims === 1) return json(409, { success: false, error: "No pod created after the last pool push is ready yet" });
             return json(200, { success: true, podId: "pod-2", pod_url: IDE2, frontend: FRONTEND2, ide: IDE2, control: CONTROL2, password: PASSWORD, generation: "new" });
           }
-          return json(200, { success: true, podId: "pod-1", pod_url: IDE, frontend: FRONTEND, ide: IDE, control: CONTROL, password: PASSWORD, generation: "old" });
+          if (pool.empty && !pool.freed.length) return json(503, { success: false, error: "No available pods" });
+          const podId = pool.empty ? pool.freed.shift()! : "pod-1";
+          return json(200, { success: true, podId, pod_url: IDE, frontend: FRONTEND, ide: IDE, control: CONTROL, password: PASSWORD, generation: "old" });
         }
         if (url.pathname.startsWith("/api/pool-manager/drop-pod/")) {
           const podId = url.searchParams.get("podId");
           if (podId === "pod-taken") return json(409, { error: "Pod has been reassigned", reassigned: true });
           if (podId === "pod-gone") return json(404, { error: "Pod not found" });
+          if (pool.empty && podId) pool.freed.push(podId);
           return json(200, { success: true });
         }
       }
@@ -370,6 +383,37 @@ steps:
     config: { workspace: "{{ input.workspace }}", fresh: true }
 `;
 
+/** A job's turn that claims and then drives its pod naming nothing: the hold answers. */
+const POD_HOLD = `name: pod-hold
+input:
+  workspace: { type: string }
+steps:
+  - id: dir
+    type: job/dir
+  - id: claim
+    type: pod/claim
+    config: { workspace: "{{ input.workspace }}" }
+  - id: diff
+    type: pod/branch-diff
+    config: {}
+  - id: result
+    type: pack
+    config: { podId: "{{ claim.podId }}", took: "{{ claim.took }}", files: "{{ diff.total }}" }
+`;
+
+/** A later turn that drives the pod as the model wrote it — or names nothing. */
+const POD_LOOK = `name: pod-look
+input:
+  control: { type: string, required: false }
+  sealed: { type: string, required: false }
+steps:
+  - id: dir
+    type: job/dir
+  - id: diff
+    type: pod/branch-diff
+    config: { control: "{{ input.control }}", sealed: "{{ input.sealed }}" }
+`;
+
 const POD_CONFIG_BAD = `name: pod-config-bad
 input:
   services: { type: json, required: false }
@@ -400,6 +444,8 @@ async function main() {
     await workspace.publishWorkflowByContent("pod-promote", POD_PROMOTE, undefined, "pods", undefined, SEED_OPTS);
     await workspace.publishWorkflowByContent("pod-fresh", POD_FRESH, undefined, "pods", undefined, SEED_OPTS);
     await workspace.publishWorkflowByContent("pod-config-bad", POD_CONFIG_BAD, undefined, "pods", undefined, SEED_OPTS);
+    await workspace.publishWorkflowByContent("pod-hold", POD_HOLD, undefined, "pods", undefined, SEED_OPTS);
+    await workspace.publishWorkflowByContent("pod-look", POD_LOOK, undefined, "pods", undefined, SEED_OPTS);
 
     // ── 2. a strut whose secrets name the stand-in hive, whose GitHub
     //       identity lookup is answered locally, and whose LLM gateway
@@ -415,12 +461,13 @@ async function main() {
       return fetch(url, init);
     };
     const grant = { apiKey: "sk-bf-test", baseUrl: `${hive.base}/llm`, headers: { "x-macaroon": "mac-test", "x-bf-dim-session-id": "job" } };
+    // Without standardServices' bare `jobs`: createStrut's own carries the job
+    // INDEX (list / get), as the lab's does — what pod/claim reads to find an
+    // idle job's pod.
+    const { jobs: _bareJobs, ...bag } = standardServices({ fetchImpl: fetchImpl as any, secretsSource: { HIVE_URL: hive.base, HIVE_API_KEY: KEY, GITHUB_TOKEN: "ghp_test" }, dataDir: dir });
     const strut = await createStrut({
       workspace,
-      services: {
-        ...standardServices({ fetchImpl: fetchImpl as any, secretsSource: { HIVE_URL: hive.base, HIVE_API_KEY: KEY, GITHUB_TOKEN: "ghp_test" }, dataDir: dir }),
-        llmAuth: async () => grant,
-      },
+      services: { ...bag, llmAuth: async () => grant },
       serveUi: false,
       enableChat: false,
       scheduler: false,
@@ -454,7 +501,8 @@ async function main() {
     // the pull request on its note under the frontend URL the claim wrote.
     const holds = await jobsCapability(dir).holds(job);
     assert.equal(holds.length, 1);
-    assert.deepEqual({ ...holds[0], since: undefined }, { id: "pod-1", kind: "pod", release: { type: "pod/release", input: { workspace: "ws-1", podId: "pod-1" } }, note: `${FRONTEND}\n${PR}`, url: FRONTEND, since: undefined });
+    // The pod's way in rides in the release input (pod/release's schema drops it), for the other steps.
+    assert.deepEqual({ ...holds[0], since: undefined }, { id: "pod-1", kind: "pod", release: { type: "pod/release", input: { workspace: "ws-1", podId: "pod-1", control: CONTROL, sealed: out1.sealed } }, note: `${FRONTEND}\n${PR}`, url: FRONTEND, since: undefined });
     console.log(`✔ claimed as job ${job.slice(0, 8)}…; the job holds pod-1 (release = pod/release ${JSON.stringify(holds[0]!.release.input)}), the PR noted on it`);
 
     // The password is nowhere strut keeps: events, output, callback.
@@ -657,7 +705,7 @@ async function main() {
     assert.match(wait.post.error.message, /no fresh pod ready yet in workspace "ws-1" — No pod created after the last pool push is ready yet; .*try again/);
     const fresh = await runFor("pod-fresh", { workspace: "ws-1" });
     assert.equal(fresh.post.status, "success", JSON.stringify(fresh.post));
-    assert.deepEqual({ ...fresh.post.output, sealed: undefined }, { podId: "pod-2", workspace: "ws-1", frontend: FRONTEND2, ide: IDE2, control: CONTROL2, sealed: undefined, generation: "new" });
+    assert.deepEqual({ ...fresh.post.output, sealed: undefined }, { podId: "pod-2", workspace: "ws-1", frontend: FRONTEND2, ide: IDE2, control: CONTROL2, sealed: undefined, generation: "new", took: null });
     const freshClaim = hive.seen.filter((s) => s.path.startsWith("/api/pool-manager/claim-pod/")).at(-1)!;
     assert.equal(freshClaim.path, `/api/pool-manager/claim-pod/ws-1?job=${job2}&run=${fresh.runId}&generation=new`);
     const freshHolds = await jobsCapability(dir).holds(job2);
@@ -676,6 +724,53 @@ async function main() {
     assert.deepEqual(letGo.post.output, { podId: "pod-2", released: true });
     assert.deepEqual(await jobsCapability(dir).holds(job2), []);
     console.log("✔ pod/claim { fresh: true }: waited out a 409, held pod-2 (generation new), gave back a pod an older hive handed out, released pod-2");
+
+    // ── 7. the hold keeps the pod's way in; an empty pool frees an idle
+    //       job's pod (strut's own job index says what is idle) ─────────────
+    const turn = async (job: string, workflow: string, input: unknown) => {
+      const n = hive.posts.length;
+      const run = await api(`/workflows/${workflow}/run`, { body: { job, input, callback } });
+      assert.equal(run.status, 202, run.text);
+      await until(() => hive.posts.length === n + 1, `the ${workflow} callback`);
+      return hive.posts[n];
+    };
+    const idle = randomUUID();
+    const held = await turn(idle, "pod-hold", { workspace: "ws-1" });
+    assert.equal(held.status, "success", JSON.stringify(held));
+    assert.deepEqual(held.output, { podId: "pod-1", took: null, files: 1 }, "branch-diff named nothing and drove the job's pod");
+    // A `sealed` the model miscopied (one character short) still opens the pod: the hold's wins.
+    const sealedNow = (await jobsCapability(dir).holds(idle))[0]!.release.input as { sealed: string };
+    const copied = await turn(idle, "pod-look", { control: CONTROL, sealed: sealedNow.sealed.slice(0, -1) });
+    assert.equal(copied.status, "success", JSON.stringify(copied));
+    console.log("✔ the hold keeps the pod's way in: a step naming nothing drove the job's pod, and a miscopied `sealed` still opened it");
+
+    hive.pool.empty = true;
+    const next = randomUUID();
+    // The idle job was used just now: its pod stays, and the claim says so.
+    const early = await turn(next, "pod-hold", { workspace: "ws-1" });
+    assert.equal(early.status, "error");
+    assert.match(early.error.message, /no pod available in workspace "ws-1" right now — and no pod another job here has held idle for 15 minutes could be freed/);
+    assert.ok(!drops().some((d) => d.path.includes(`job=${idle}`)), "nothing dropped from a job used just now");
+    // An hour later (its record and runs backdated), it is idle: the claim
+    // frees its pod as that job and gets it.
+    const recPath = join(dir, "jobs", `${idle}.json`);
+    const rec = JSON.parse(readFileSync(recPath, "utf-8"));
+    const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
+    rec.usedAt = hourAgo;
+    for (const r of rec.runs) r.at = hourAgo;
+    writeFileSync(recPath, JSON.stringify(rec, null, 2));
+    const took = await turn(next, "pod-hold", { workspace: "ws-1" });
+    assert.equal(took.status, "success", JSON.stringify(took));
+    assert.deepEqual(took.output, { podId: "pod-1", took: { job: idle, podId: "pod-1" }, files: 1 });
+    assert.equal(drops().at(-1)!.path, `/api/pool-manager/drop-pod/ws-1?podId=pod-1&job=${idle}`);
+    assert.deepEqual(await jobsCapability(dir).holds(idle), [], "the idle job's hold is gone");
+    assert.deepEqual((await jobsCapability(dir).holds(next)).map((h: any) => h.id), ["pod-1"]);
+    // The idle job's next turn hears its pod is gone.
+    const after = await turn(idle, "pod-look", {});
+    assert.equal(after.status, "error");
+    assert.match(after.error.message, /holds no pod: none was claimed, or it was released \(pod\/release\), or taken for another job's claim while this job sat idle/);
+    hive.pool.empty = false;
+    console.log(`✔ an empty pool: a job used just now kept its pod; an hour idle, its pod went to the next claim (dropped as job ${idle.slice(0, 8)}…), and its next turn heard so`);
 
     console.log("\npods smoke: all good");
   } finally {
