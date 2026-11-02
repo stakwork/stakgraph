@@ -1,5 +1,5 @@
 import { z, defineStep } from "strut";
-import { capText, type PodCtx } from "./_shared.js";
+import { capText, podAccess, type PodCtx } from "./_shared.js";
 import { FILES, mask, maskPm2, readPod, readStored, tagger, unifiedDiff, type FileName } from "./_pool.js";
 
 const File = z.object({
@@ -14,7 +14,7 @@ const File = z.object({
 export default defineStep({
   type: "pod/config",
   description:
-    "Read a workspace's POOL CONFIG — what hive builds every new pod from — and, given a claimed pod (`control` + `sealed`), the files that pod runs from, " +
+    "Read a workspace's POOL CONFIG — what hive builds every new pod from — and, given a claimed pod (`podId` on a run with a job, else `control` + `sealed`), the files that pod runs from, " +
     "with a diff per file (hive → pod): what a fix made in the pod would change for every pod. The config is `services` (pm2.config.js is generated from " +
     "them: a service's `port` and `scripts` become its PORT and *_COMMAND env vars), the workspace-wide `env`, `docker-compose.yml` and `Dockerfile`; " +
     "devcontainer.json is left out. Env values are masked: `env` and each service's `env` as hive masks them (`ab******yz` — write them back as they " +
@@ -24,8 +24,9 @@ export default defineStep({
     "Output: { workspace, services, env, files: [{ name, hive, pod, path, status, diff }], rollout }.",
   input: z.object({
     workspace: z.string().min(1).describe("The hive workspace, by its slug (no `@`) — the one given to pod/claim"),
-    control: z.string().min(1).optional().describe("A claimed pod's control URL (pod/claim), to diff its files against hive's"),
-    sealed: z.string().min(1).optional().describe("That pod's sealed password (pod/claim)"),
+    podId: z.string().min(1).optional().describe("A pod this job holds (pod/claim's podId), to diff its files against hive's; leave out for hive's config alone"),
+    control: z.string().min(1).optional().describe("On a run without a job: a claimed pod's control URL (pod/claim), to diff its files against hive's"),
+    sealed: z.string().min(1).optional().describe("On a run without a job: that pod's sealed password (pod/claim)"),
     maxChars: z.number().int().positive().default(12_000).describe("Cap on each file's text and each diff"),
   }),
   output: z.object({
@@ -36,9 +37,11 @@ export default defineStep({
     rollout: z.any().nullable(),
   }),
   async run(cfg, ctx: PodCtx) {
-    if (!cfg.control !== !cfg.sealed) throw new Error("pod/config: give both `control` and `sealed` (a claimed pod), or neither (hive's config alone)");
     const stored = await readStored(ctx, cfg.workspace);
-    const pod = cfg.control && cfg.sealed ? await readPod(ctx, cfg.control, cfg.sealed) : null;
+    // A pod only when one is named: nothing named is hive's config alone,
+    // never the job's own pod by default.
+    const access = cfg.podId || cfg.control || cfg.sealed ? await podAccess(ctx, cfg) : null;
+    const pod = access ? await readPod(ctx, access.control, access.sealed) : null;
     // One tagger for both sides of every diff: equal values, equal tags.
     const tag = tagger();
     const view = (name: FileName, text: string | undefined) =>

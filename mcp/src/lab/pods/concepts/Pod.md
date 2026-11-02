@@ -13,18 +13,30 @@ workspace and holds that workspace's repositories: claim for the workspace
 whose code is changing, by its slug without the `@` — the one the request
 names, else this strut's own, on your message's first line.
 
-Claim ONCE per job: `pod/claim { workspace }`. Its `sealed` and `control`
-go to every other pod tool. The pod stays with the job between turns — the
-agent in it remembers, the dev server keeps running — so report it as soon
-as you have it, with stable ids, in every turn you work in it:
+Claim ONCE per job: `pod/claim { workspace }`. The other pod tools find the
+job's pod on their own: give them no `podId`, `control` or `sealed` (name
+`podId` only for a second pod the job holds, the fresh one `Pod Config`
+checks a fix on). The pod stays with the job between turns — the agent in
+it remembers, the dev server keeps running — so report it as soon as you
+have it, with stable ids, in every turn you work in it:
 
 - `{ id: "pod", kind: "url", title: "Pod", url: <frontend> }`
 - `{ id: "ide", kind: "url", title: "IDE", url: <ide> }`
 
-Then `pod/latest { control, sealed, repos: [{ url: "https://github.com/<owner>/<name>.git" }] }`
+Then `pod/latest { repos: [{ url: "https://github.com/<owner>/<name>.git" }] }`
 once, so the repositories start at the base branch. To revise a pull
 request on a pod that was released in between, claim again and give
 `latest` the pull request's branch as `base_branch`.
+
+The pod is yours only while the job is in use. When another job's claim
+finds the pool empty, it takes the pod of a job that has had no turn
+running for 15 minutes. What you pushed is safe; what lives only in the
+pod is not — uncommitted changes, a task its agent was still running, the
+agent's memory of this job. So push what must survive before a turn ends.
+A later turn that finds the pod gone — a pod tool says this job does not
+hold it, or the pod rejected its password — claims again, starts the new
+pod on the pull request's branch with `latest`, and hands its agent the
+task standing alone: it remembers nothing.
 
 When the app does not run in the pod, or must run differently for this
 request — with mocks, an env var changed, an extra service beside it —
@@ -98,8 +110,9 @@ decide, with the tools you have:
   the agent in the pod with the failure standing alone, judge it, then
   `pod/push { stay_on_branch: true }` so the same pull request gains the
   commit — never a second pull request. Report the same `pr` id. If the pod
-  is gone (password rejected, or released after a merge), claim again and
-  give `pod/latest` the pull request's branch as `base_branch`, as above.
+  is gone (taken while the job sat idle, released after a merge, or its
+  password rejected), claim again and give `pod/latest` the pull request's
+  branch as `base_branch`, as above.
 - **An event about an artifact you do not know:** say so and do nothing —
   never release a pod on a guess.
 
@@ -107,6 +120,8 @@ Release the pod with `pod/release { workspace, podId }` — the workspace
 you claimed it for — when the job is done
 with it — every pull request from it is merged or closed, or the person
 says so. Otherwise keep it: strut releases it itself when the job is
-deleted or sits idle. If a pod tool says the pod rejected its password,
-the pod is gone: claim again. A `no pod available` error means the pool is
-empty: tell the person and try later.
+deleted or sits idle for days, and another job may take it after 15 idle
+minutes (above). If a pod tool says this job does not hold the pod, or the
+pod rejected its password, the pod is gone: claim again. A `no pod
+available` error means every pod is in use, by jobs with recent turns or by
+hive's own tasks: tell the person and try later.

@@ -64,7 +64,7 @@ describe("the Pod Setup pages", () => {
     assert.ok(!root.includes("`frontend`"), "Pod Setup never names the frontend");
     const onboarding = front(await readFile(join(POD_SETUP_CONCEPTS.dir, "..", "..", "job", "concepts", "Onboarding.md"), "utf8"));
     assert.equal(onboarding.meta.parent, "Job");
-    for (const step of ["pod/claim", "identify-services", "pod/config { workspace, control, sealed }", "npx -y hell0-w0rld", "pod/config-set", "wait: false", "pod/config-apply", "meta/verify-job", "fresh: true"]) {
+    for (const step of ["pod/claim", "identify-services", "pod/config { workspace, podId }", "npx -y hell0-w0rld", "pod/config-set", "wait: false", "pod/config-apply", "meta/verify-job", "fresh: true"]) {
       assert.ok(onboarding.body.includes(step), `Onboarding names ${step}`);
     }
     // The no-ask write is guarded: pod/config is read before pod/config-set.

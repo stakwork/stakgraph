@@ -23,8 +23,10 @@ import { SEED_OPTS, retireSteps } from "../seed-opts.js";
  * and the dev server stays up between turns for the person to watch.
  *
  * The pod's password is a credential: `pod/claim` returns it sealed (under
- * HIVE_API_KEY), every other step takes `sealed` and opens it in-process —
- * it never reaches an output, the run log or an agent's context. Secrets:
+ * HIVE_API_KEY) and every other step opens it in-process — it never reaches
+ * an output, the run log or an agent's context. On a job the steps read the
+ * sealed form from the hold, never from what the model copied; and on an
+ * empty pool a claim takes the pod of a job idle for 15 minutes. Secrets:
  * HIVE_URL + HIVE_API_KEY (the deployment's; an org-scoped key — the hub
  * claims for every workspace of its org), GITHUB_TOKEN (the run's, for
  * fetches and pushes); the agent in the pod calls the model through this

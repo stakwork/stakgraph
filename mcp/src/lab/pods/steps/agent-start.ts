@@ -1,5 +1,5 @@
 import { z, defineStep } from "strut";
-import { agentBody, submit, type PodCtx } from "./_shared.js";
+import { agentBody, submit, POD_REF, podAccess, type PodCtx } from "./_shared.js";
 
 export default defineStep({
   type: "pod/agent-start",
@@ -10,8 +10,7 @@ export default defineStep({
     "billed to this run through the LLM gateway. Nothing reports back when the task finishes, so a job turn should use pod/agent and wait; this is for " +
     "a workflow that does other work meanwhile and then polls. Output: { request_id, session, status }.",
   input: z.object({
-    control: z.string().min(1).describe("The pod's control URL (pod/claim)"),
-    sealed: z.string().min(1).describe("The pod's sealed password (pod/claim)"),
+    ...POD_REF,
     prompt: z.string().min(1).describe("The task, standing alone"),
     system: z.string().optional().describe("A system prompt for the agent"),
     repoName: z.string().optional().describe("The repository to work in (its name, e.g. `hive`) when the pod has several"),
@@ -24,8 +23,9 @@ export default defineStep({
     status: z.enum(["pending", "completed", "failed"]),
   }),
   async run(cfg, ctx: PodCtx) {
+    const pod = await podAccess(ctx, cfg);
     const { body, session } = await agentBody(ctx, cfg);
-    const first = await submit(ctx, cfg.control, cfg.sealed, "/agent", "POST", body);
+    const first = await submit(ctx, pod.control, pod.sealed, "/agent", "POST", body);
     return { request_id: first.requestId, session, status: first.status };
   },
 });

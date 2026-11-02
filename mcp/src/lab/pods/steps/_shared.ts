@@ -1,5 +1,5 @@
-import type { HttpResponse, StepContext } from "strut";
-import { workflowOf } from "strut";
+import type { HttpResponse, JobHold, StepContext } from "strut";
+import { workflowOf, z } from "strut";
 
 /**
  * Shared by the pod/* steps (a seeded helper; the registry skips a leading
@@ -14,7 +14,9 @@ import { workflowOf } from "strut";
  * log or an agent's context: `pod/claim` returns it SEALED (AES-GCM under a
  * key derived from HIVE_API_KEY — whoever holds that key can claim pods
  * anyway, so the seal adds no trust and needs no second secret), and every
- * other step takes `sealed` and opens it in-process, for the one request.
+ * other step opens it in-process, for the one request. On a run with a job
+ * the steps read `control` and `sealed` from the job's pod HOLD (`podAccess`),
+ * so the model never copies them.
  */
 
 export type PodCtx = StepContext<any>;
@@ -30,6 +32,96 @@ export async function hiveApi(ctx: PodCtx): Promise<{ base: string; headers: Rec
   const base = await need(ctx, "HIVE_URL", "the hive this strut claims pods from (its base URL)");
   const key = await need(ctx, "HIVE_API_KEY", "an org-scoped hive API key with pool-manager access");
   return { base: base.replace(/\/+$/, ""), headers: { "x-api-token": key } };
+}
+
+/** Give a pod back to hive's pool AS `job`: hive drops it only while that job
+ *  is still its claimant (strut plans/job-artifact-events.md §2), never from
+ *  under a task or another job it was handed to since. 404: hive already let
+ *  it go; 409 `reassigned`: it is someone else's now. The caller decides
+ *  what those mean. */
+export async function dropPod(ctx: PodCtx, workspace: string, podId: string, job: string | undefined): Promise<HttpResponse> {
+  const { base, headers } = await hiveApi(ctx);
+  const q = new URLSearchParams({ podId });
+  if (job) q.set("job", job);
+  return ctx.services.http(`${base}/api/pool-manager/drop-pod/${encodeURIComponent(workspace)}?${q}`, { method: "POST", headers });
+}
+
+// ── which pod a step drives ───────────────────────────────────────────────
+
+/** How every pod/* step after the claim names its pod. */
+export const POD_REF = {
+  podId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "The pod (pod/claim's podId). On a run with a job, leave podId, control and sealed all out for the job's own pod, or name a second pod the job holds by podId: the step reads its control URL and password from the job's hold",
+    ),
+  control: z.string().min(1).optional().describe("The pod's control URL (pod/claim) — needed only on a run without a job"),
+  sealed: z.string().min(1).optional().describe("The pod's sealed password (pod/claim) — needed only on a run without a job"),
+};
+
+export interface PodRef {
+  podId?: string | undefined;
+  control?: string | undefined;
+  sealed?: string | undefined;
+}
+
+/** The way into a held pod, as pod/claim records it on the hold. */
+function heldAccess(hold: JobHold): { control: string; sealed: string } | null {
+  const i = hold.release?.input as Record<string, unknown> | undefined;
+  return typeof i?.["control"] === "string" && typeof i?.["sealed"] === "string" ? { control: i["control"], sealed: i["sealed"] } : null;
+}
+
+const sameUrl = (a: string, b: string) => a.replace(/\/+$/, "") === b.replace(/\/+$/, "");
+
+/**
+ * Which pod a step drives: its control URL and sealed password. On a run with
+ * a job the job's pod HOLD answers — the pod `podId` names, else the one at
+ * `control`, else (nothing named) the job's own pod, the hold with a url — and
+ * what the hold recorded wins over what was passed: a model copying `sealed`
+ * from one tool call into the next dropped a character (swarm38, 2026-11-02,
+ * run 1793579091586) and the step could not open it. `control` + `sealed` as
+ * given serve a run without a job, a pod the job does not hold, and a pod
+ * claimed before its hold kept them.
+ */
+export async function podAccess(ctx: PodCtx, ref: PodRef): Promise<{ control: string; sealed: string }> {
+  const job = ctx.job;
+  const jobs = job ? ctx.services?.jobs : undefined;
+  if (job && typeof jobs?.holds === "function") {
+    const pods = ((await jobs.holds(job)) as JobHold[]).filter((h) => h.kind === "pod");
+    const named = Boolean(ref.podId || ref.control || ref.sealed);
+    const hold = ref.podId
+      ? pods.find((h) => h.id === ref.podId)
+      : ref.control
+        ? pods.find((h) => {
+            const a = heldAccess(h);
+            return a !== null && sameUrl(a.control, ref.control!);
+          })
+        : named
+          ? undefined
+          : pods.find((h) => h.url);
+    const held = hold ? heldAccess(hold) : null;
+    if (held) return held;
+    const gone = "released (pod/release), or taken for another job's claim while this job sat idle (pod/claim says when)";
+    if (ref.podId && !hold) throw new Error(`job "${job}" does not hold pod ${ref.podId}: it was ${gone} — claim again with pod/claim`);
+    if (!named && !hold) {
+      throw new Error(
+        pods.length
+          ? `job "${job}" holds no pod of its own, only ${pods.map((h) => h.id).join(", ")} (borrowed to check a config change): name it by podId, or claim the job's pod with pod/claim`
+          : `job "${job}" holds no pod: none was claimed, or it was ${gone} — claim one with pod/claim`,
+      );
+    }
+    if (!(ref.control && ref.sealed)) {
+      throw new Error(
+        hold
+          ? `pod ${hold.id}: its hold on job "${job}" was recorded before holds kept the pod's way in — pass control and sealed from pod/claim, or claim again`
+          : "name the pod by podId (one this job holds), or give both control and sealed from pod/claim",
+      );
+    }
+  }
+  if (ref.control && ref.sealed) return { control: ref.control, sealed: ref.sealed };
+  throw new Error("name the pod: `control` and `sealed` from pod/claim (on a run without a job nothing else remembers them)");
 }
 
 // ── the sealed password ───────────────────────────────────────────────────

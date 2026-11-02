@@ -88,7 +88,7 @@ describe("the lab's Concept files", () => {
     const ob = await read(JOB_CONCEPTS, "Onboarding.md");
     assert.equal(ob.parent, "Job");
     assert.ok(ob.docs!.startsWith(ob.description!));
-    for (const needle of [/pod\/claim \{ workspace \}/, /"identify-services"/, /pod\/config \{ workspace, control, sealed \}/, /npx -y hell0-w0rld/, /wait: false/, /pod\/config-apply/, /Do not ask first/, /Any\s+other pool config is not a first setup/, /meta\/verify-job/, /fresh: true/, /`Pod Config`/]) {
+    for (const needle of [/pod\/claim \{ workspace \}/, /"identify-services"/, /pod\/config \{ workspace, podId \}/, /npx -y hell0-w0rld/, /wait: false/, /pod\/config-apply/, /Do not ask first/, /Any\s+other pool config is not a first setup/, /meta\/verify-job/, /fresh: true/, /`Pod Config`/]) {
       assert.match(ob.docs!, needle);
     }
     assert.deepEqual(await readdir(JOB_CONCEPTS.dir), ["Explore.md", "Onboarding.md", "Plan Mode.md", "Verify.md"]);
@@ -127,7 +127,7 @@ describe("the lab's Concept files", () => {
     assert.match(pc.stamp, /^lab\/pods\/concepts\/Pod Config\.md@[0-9a-f]{12}$/);
     assert.ok(pc.docs!.startsWith(pc.description!));
     // Look first, the in-pod knowledge, ask before promoting, verify on a fresh pod, report what a later job finds.
-    for (const needle of [/job\/list \{ q: "pod config <workspace>" \}/, /staklink reload/, /pm2 stop all/, /`Pod Setup`/, /pod\/config \{ workspace, control, sealed \}/, /`ask`/, /pod\/config-set/, /fresh: true/, /pull request merges/, /id: "pod-config"/, /devcontainer\.json/, /No credential is promoted/]) assert.match(pc.docs!, needle);
+    for (const needle of [/job\/list \{ q: "pod config <workspace>" \}/, /staklink reload/, /pm2 stop all/, /`Pod Setup`/, /pod\/config \{ workspace, podId \}/, /`ask`/, /pod\/config-set/, /fresh: true/, /pull request merges/, /id: "pod-config"/, /devcontainer\.json/, /No credential is promoted/]) assert.match(pc.docs!, needle);
     // One set of rules: what the files must say is Pod Setup's, never copied here.
     assert.doesNotMatch(pc.docs!, /0\.0\.0\.0|hell0-w0rld|staklink-android/, "the setup contract is Pod Setup's");
     assert.deepEqual(await readdir(POD_CONCEPTS.dir), ["Pod Config.md", "Pod.md"]);

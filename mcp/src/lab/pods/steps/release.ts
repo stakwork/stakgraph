@@ -1,5 +1,5 @@
 import { z, defineStep } from "strut";
-import { brief, hiveApi, type PodCtx } from "./_shared.js";
+import { brief, dropPod, type PodCtx } from "./_shared.js";
 
 export default defineStep({
   type: "pod/release",
@@ -13,15 +13,11 @@ export default defineStep({
   }),
   output: z.object({ podId: z.string(), released: z.literal(true) }),
   async run(cfg, ctx: PodCtx) {
-    const { base, headers } = await hiveApi(ctx);
-    const q = new URLSearchParams({ podId: cfg.podId });
     // As the job (strut plans/job-artifact-events.md §2): hive drops the pod
     // only while this job is still its claimant — never from under a task or
     // another job it was handed to since. The sweep's release runs under a
     // context with the job, so a late sweep goes through the same check.
-    if (ctx.job) q.set("job", ctx.job);
-    const url = `${base}/api/pool-manager/drop-pod/${encodeURIComponent(cfg.workspace)}?${q}`;
-    const res = await ctx.services.http(url, { method: "POST", headers });
+    const res = await dropPod(ctx, cfg.workspace, cfg.podId, ctx.job);
     // 404: hive already let it go (recycled, or released by hand). 409
     // `reassigned`: hive gave it to someone else since. Either way the pod
     // is not this job's any more — nothing to hold on to.

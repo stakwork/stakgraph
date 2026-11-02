@@ -1,5 +1,5 @@
 import { z, defineStep, withMessages } from "strut";
-import { agentBody, agentOutcome, agentTranscript, settle, submit, type PodCtx } from "./_shared.js";
+import { agentBody, agentOutcome, agentTranscript, settle, submit, POD_REF, podAccess, type PodCtx } from "./_shared.js";
 
 export default defineStep({
   type: "pod/agent",
@@ -9,8 +9,7 @@ export default defineStep({
     "completes with its message as `output` — read it. The session is this run's job unless `session` is given, so on a job the agent remembers earlier " +
     "turns; the prompt must still stand alone. Output: { request_id, session, status: completed, output, summary, usage, model }.",
   input: z.object({
-    control: z.string().min(1).describe("The pod's control URL (pod/claim)"),
-    sealed: z.string().min(1).describe("The pod's sealed password (pod/claim)"),
+    ...POD_REF,
     prompt: z.string().min(1).describe("The task, standing alone"),
     system: z.string().optional().describe("A system prompt for the agent"),
     repoName: z.string().optional().describe("The repository to work in (its name) when the pod has several"),
@@ -30,9 +29,10 @@ export default defineStep({
     model: z.string().nullable(),
   }),
   async run(cfg, ctx: PodCtx) {
+    const pod = await podAccess(ctx, cfg);
     const { body, session } = await agentBody(ctx, cfg);
-    const first = await submit(ctx, cfg.control, cfg.sealed, "/agent", "POST", body);
-    const p = await settle(ctx, cfg.control, cfg.sealed, first, { pollMs: cfg.pollMs, timeoutMs: cfg.timeoutMs, what: "pod/agent" });
+    const first = await submit(ctx, pod.control, pod.sealed, "/agent", "POST", body);
+    const p = await settle(ctx, pod.control, pod.sealed, first, { pollMs: cfg.pollMs, timeoutMs: cfg.timeoutMs, what: "pod/agent" });
     const out = agentOutcome(p, cfg.outputChars);
     if (p.status === "failed") throw new Error(`pod/agent: the pod's agent failed — ${out.error}`);
     // The transcript rides on the output as strut's marker (non-enumerable:

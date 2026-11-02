@@ -206,14 +206,35 @@ released the pod at the end.
   (hive renders a `url` artifact as a live frame). Without a hold a claimed
   pod leaks: hive's stale sweep releases pods by `Task.podId`, and strut
   claims with no task.
+- **An idle job's pod goes to a claim that needs it.** A hold lasts until
+  the PRs from the pod merge, which can be days, and a workspace's pool may
+  be two pods (peel-4, 2026-11-02: two finished jobs held both and every
+  claim failed for a night). So on hive's 503 `pod/claim` frees ONE pod of
+  the workspace that another job holds while it is idle — no run of it in
+  flight (strut's job index: `busy`, or a run with no summary), nothing done
+  for `IDLE_MINUTES` (15; the later of the record's `usedAt` and its last
+  run's end) — the one idle longest, through drop-pod AS that job and
+  `jobs.release` on its hold, then claims once more (`took` names it). The
+  job's next turn hears its pod is gone and claims again (`Pod.md`). Hive's
+  pod scaler counts only hive tasks, so it never grows a pool for strut's
+  jobs; that half is hive's.
 - **The password never leaves the step.** `pod/claim` returns it SEALED
   (AES-GCM under a key derived from HIVE_API_KEY — whoever holds that key
-  can claim pods anyway, so no second secret) and every other step takes
-  `sealed` and opens it in-process for the one request. The run log, the
+  can claim pods anyway, so no second secret) and every other step opens it
+  in-process for the one request. On a job it also rides on the HOLD, in
+  `release.input` beside pod/release's own (whose schema drops it), and
+  every other step reads `control` + `sealed` from there (`podAccess`: by
+  `podId`, else by `control`, else the job's own pod — the hold with a
+  url), winning over anything passed: a model copying `sealed` between
+  calls once dropped a character (swarm38 run 1793579091586). The hold is
+  served by `GET /jobs/:id` to the readers of the run log, which carries
+  `sealed` already; `job.update` carries none of it, and it is the only
+  place a step can keep anything past its run without `fs`. `control` +
+  `sealed` as inputs stay for a run without a job. The run log, the
   output, the callback and the agent's context carry `sealed` only; the
   smoke proves it.
 - **Steps** (`pods/steps/`, one file each; `_shared.ts` is a seeded helper
-  the registry skips): `claim` (→ `{ podId, frontend, ide, control, sealed }`,
+  the registry skips): `claim` (→ `{ podId, frontend, ide, control, sealed, took }`,
   the hold) and `release`; `latest` (reset repositories to a branch, the
   run's GitHub token on the fetch); the agent in the pod three ways —
   `agent-start` (returns a `request_id` at once, for a workflow that polls;

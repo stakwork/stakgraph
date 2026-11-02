@@ -19,7 +19,7 @@ built.
    (the compose file, and a Dockerfile only when the platform needs one),
    with `notes` on what it fixed in code. Use its output as it is.
 3. **Write it to the pool.** Read the pool first:
-   `pod/config { workspace, control, sealed }`. When it holds the
+   `pod/config { workspace, podId }`. When it holds the
    placeholder, a lone `frontend` running `npx -y hell0-w0rld`, this is the
    workspace's first setup and the person asked to be onboarded.
    Do not ask first: `pod/config-set { workspace, services,
@@ -28,7 +28,7 @@ built.
    one the workspace already runs, and replacing it asks first, as `Pod
    Config` says, with the draft beside what the pool holds. Go on from
    here on a yes. Every later change asks too.
-4. **Run it in your pod**: `pod/config-apply { workspace, control, sealed }`.
+4. **Run it in your pod**: `pod/config-apply { workspace }`.
    The pod gets the files hive now stores, brings up the compose services
    and installs, builds and starts the apps. Read `success`, `compose`,
    `reload` and `processes`.
