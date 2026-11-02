@@ -5,7 +5,7 @@ export default defineStep({
   type: "pod/release",
   description:
     "Release a claimed hive pod back to the pool and drop the job's hold on it. Do this when the job is done with the pod — the change is merged, " +
-    "or the person says so; a pod the job still needs stays claimed (strut releases it itself when the job is deleted or idle too long). " +
+    "or the person says so; a pod the job still needs stays claimed (the strut server releases it itself when the job is deleted or idle too long). " +
     "A pod hive no longer knows, or has since handed to someone else, counts as released: it is not this job's any more. Output: { podId, released: true }.",
   input: z.object({
     workspace: z.string().min(1).describe("The hive workspace the pod was claimed for, as given to pod/claim (slug or id)"),

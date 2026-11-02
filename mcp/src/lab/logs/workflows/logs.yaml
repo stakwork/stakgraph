@@ -33,7 +33,7 @@ description: >-
   deployment (LOGS_SWARM_NAME, LOGS_POOL_NAME, LOGS_WORKSPACE_SLUG). Input:
   { prompt, session? } (+ `job` on the launch to keep the files for a
   follow-up). Output: { answer (the analysis, markdown), cost }. Open to
-  other struts: strut/run-workflow { peer, workflow: "logs", input: { prompt } }.
+  other workspaces: strut/run-workflow { peer, workflow: "logs", input: { prompt } }.
 input:
   prompt: { type: string, description: "What to find out from this swarm's logs" }
   session: { type: string, required: false, description: "The agent's thread (a session id). Cold unless given: pass one, and the same `job` on the launch, to ask a follow-up about what was fetched" }

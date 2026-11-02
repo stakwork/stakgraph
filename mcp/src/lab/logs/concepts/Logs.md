@@ -19,10 +19,9 @@ the question — the same failure, the same window — use it. When it answers
 part, ask only about the rest and revise that note — another job's in a
 copy under your `notes/`, since its directory is not yours to write.
 
-Which swarm. Your message's first line names the workspace this strut
-belongs to, `@<slug>`; `logs` here reads its swarm. Any other `@<slug>` in
-the request is another workspace of this org, with its own swarm and logs
-on its own strut: a peer. Read the swarm where it happened; a request that
+Which swarm. Your message's first line names this workspace, `@<slug>`;
+`logs` here reads its swarm. Any other `@<slug>` in the request is another
+workspace of this org, with its own swarm and logs: a peer. Read the swarm where it happened; a request that
 names no workspace means this one.
 
 - This swarm: `meta/run-workflow { name: "logs", input: { prompt, session } }`.

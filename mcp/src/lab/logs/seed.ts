@@ -25,7 +25,7 @@ const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [
   {
     name: "logs",
     description:
-      "Ask this swarm's logs a question: the logs agent (/logs/agent's, with its tools and time budget) fetches the swarm's CloudWatch log groups (Logs Insights, long lines recovered) and its app's Quickwit logs into files, searches and reads them (logs/search, logs/read), counts and groups with Logs Insights queries (logs/insights), and answers. Where to look is this deployment's (LOGS_SWARM_NAME, LOGS_POOL_NAME, LOGS_WORKSPACE_SLUG, from Secrets or env); what it may read is the swarm's IAM role's. Input: { prompt, session? } (+ `job` on the launch to keep the fetched files for a follow-up). Output: { answer, cost }. Open to other struts (`peer: true`): strut/run-workflow { peer, workflow: \"logs\", input: { prompt } }. No built-ins, no shell, no caller MCP servers.",
+      "Ask this swarm's logs a question: the logs agent (/logs/agent's, with its tools and time budget) fetches the swarm's CloudWatch log groups (Logs Insights, long lines recovered) and its app's Quickwit logs into files, searches and reads them (logs/search, logs/read), counts and groups with Logs Insights queries (logs/insights), and answers. Where to look is this deployment's (LOGS_SWARM_NAME, LOGS_POOL_NAME, LOGS_WORKSPACE_SLUG, from Secrets or env); what it may read is the swarm's IAM role's. Input: { prompt, session? } (+ `job` on the launch to keep the fetched files for a follow-up). Output: { answer, cost }. Open to other workspaces (`peer: true`): strut/run-workflow { peer, workflow: \"logs\", input: { prompt } }. No built-ins, no shell, no caller MCP servers.",
   },
 ];
 

@@ -25,10 +25,9 @@ the question, use it. When it answers part, explore only the rest and
 revise that note — another job's in a copy under your `notes/`, since its
 directory is not yours to write.
 
-Which workspace. Your message's first line names the workspace this strut
-belongs to, `@<slug>`. Any other `@<slug>` in the request is another
-workspace of this org, with its own graph and repositories on its own
-strut: a peer. Explore where the code lives; a request that names no
+Which workspace. Your message's first line names this workspace,
+`@<slug>`. Any other `@<slug>` in the request is another workspace of
+this org, with its own graph and repositories: a peer. Explore where the code lives; a request that names no
 workspace means this one.
 
 - This workspace: `meta/run-workflow { name: "explore", input: { prompt, repos } }`.
