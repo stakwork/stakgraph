@@ -24,8 +24,9 @@ const GATED = [
 
 /** What strut's own template gates, ahead of the lab's delta: `app/grant`,
  *  a person's yes to an app talking to this assistant (strut
- *  src/apps/grants.ts). */
-const STRUT_GATED = ["app/grant"];
+ *  src/apps/grants.ts), and `package/install`, a person's yes to a package
+ *  (strut plans/marketplace.md §8). */
+const STRUT_GATED = ["app/grant", "package/install"];
 
 // The mcp dir, like the real lab-workspace: a seeded step's bare `strut`
 // import resolves via mcp/node_modules from there.

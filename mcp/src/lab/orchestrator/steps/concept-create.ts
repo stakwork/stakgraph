@@ -91,7 +91,7 @@ function found(n: Envelope): Found | null {
 }
 
 /** The parent: a ref_id first, else the Concept under that exact name. */
-async function findParent(b: GraphBackend, schema: { type: string; node_key: string; exact_key?: boolean }, parent: string, namespace: string): Promise<Found | null> {
+async function findParent(b: GraphBackend, schema: Parameters<typeof composeNodeKey>[0], parent: string, namespace: string): Promise<Found | null> {
   const byRef = found(await b.reader.getNode(parent));
   if (byRef) return byRef;
   return found(await b.reader.getNodeByKey(schema.type, composeNodeKey(schema, { name: parent }), namespace));

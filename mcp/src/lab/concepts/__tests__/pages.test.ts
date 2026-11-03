@@ -21,7 +21,7 @@ import pages, {
   textHash,
 } from "../steps/pages.js";
 
-const SCHEMA = { type: "Concept", node_key: "concept-name", parent: "Thing", attributes: {} } as unknown as NodeSchema;
+const SCHEMA = { type: "Concept", key_spec: "concept-name", parent: "Thing", attributes: {} } as unknown as NodeSchema;
 
 describe("the hashes", () => {
   it("do not depend on order, and change with any input", () => {

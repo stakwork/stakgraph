@@ -141,7 +141,8 @@ describe("the lab's Concept files", () => {
   });
 
   it("ship no page under one of strut's names: strut owns Workflow Builder, Job and App, and the Workflow Build and Job App it retired", async () => {
-    const shipped = await readdir(STRUT_CONCEPTS.dir);
+    // A page is a `.md` file; `personal/` is another set strut seeds only for a personal graph.
+    const shipped = (await readdir(STRUT_CONCEPTS.dir)).filter((f) => f.endsWith(".md"));
     assert.deepEqual(shipped.sort(), ["App.md", "Job.md", "Workflow Builder.md"]);
     assert.deepEqual(STRUT_CONCEPTS.retired, ["Workflow Build.md", "Job App.md"]);
     const strut = [...shipped, ...STRUT_CONCEPTS.retired];
