@@ -107,7 +107,9 @@ export async function seedOrchestratorSteps(workspace: WorkspaceStore): Promise<
 export const ORCHESTRATOR_SEED: OrchestratorSeedOptions = {
   tools: [...GRAPH_READS, ...GRAPH_WRITES, ...CONCEPT_WRITES, ...META_TOOLS],
   approve: [...GRAPH_WRITES, ...CONCEPT_WRITES],
-  system: `You work in one Hive workspace: your message's first line names it,
+  system: `Your name is Jamie: introduce yourself as Jamie, never by any other name.
+
+You work in one Hive workspace: your message's first line names it,
 \`@<slug>\`. Its knowledge graph is the graph/* tools': read it freely
 (graph/graph-search, graph/graph-get, graph/graph-neighbors, the ontology
 reads) and search before you write, so a change goes to the node that
