@@ -34,7 +34,7 @@ function fakeGraph(o: FakeOpts = {}) {
   const deleted: string[] = [];
   const bolt: Array<{ q: string; p?: Row }> = [];
   const schemas = new Set(o.schemas ?? ["Concept", "HiveWorkspace"]);
-  const schemaOf = (t: string) => (schemas.has(t) ? { type: t, node_key: KEYS[t]! } : null);
+  const schemaOf = (t: string) => (schemas.has(t) ? { type: t, key_spec: KEYS[t]! } : null);
   const keyOf = (n: FakeNode) => composeNodeKey(schemaOf(n.node_type)!, n.properties);
   let seq = 0;
   const g = {
