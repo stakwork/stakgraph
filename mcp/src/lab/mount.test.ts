@@ -126,6 +126,9 @@ describe("labAuth", () => {
       store: new MemoryRunStore(),
       serveUi: false,
       enableChat: false,
+      // The lab's MCP doors are on (it keeps chat's default), among them a
+      // public app's, `POST /public/mcp`.
+      enableMcp: true,
       scheduler: false,
       autoResume: false,
       resolveActor: resolveLabActor,
@@ -265,6 +268,85 @@ describe("labAuth", () => {
       const res = await get(port, path, {}, method);
       assert.equal(res.status, 401, `${method} ${path}`);
     }
+  });
+
+  it("hands strut's public view to anyone: its reads, a preflight, a public app's door", async () => {
+    for (const [path, method] of [
+      ["/lab/public", "GET"],
+      ["/lab/public/", "GET"],
+      ["/lab/public/workflows", "GET"],
+      ["/lab/public/workflows/x/runs/1/events", "GET"],
+      ["/lab/public/apps/bench/document", "HEAD"],
+      ["/lab/public/workflows", "OPTIONS"],
+      ["/lab/public/mcp", "OPTIONS"],
+      ["/lab/public/mcp", "POST"],
+    ] as const) {
+      const res = await get(port, path, {}, method);
+      assert.equal(res.status, 200, `${method} ${path}`);
+      if (method !== "HEAD") assert.equal(JSON.parse(res.body).actor, null, `${method} ${path}`);
+    }
+    // Reads only, under `/public` only, and the one POST — never the
+    // record itself (`/public-view`, a person's), never a path that
+    // resolves elsewhere.
+    for (const [path, method] of [
+      ["/lab/public/../workflows", "GET"],
+      ["/lab/public/%2e%2e/workflows", "GET"],
+      ["/lab/public/.%2E/workflows", "GET"],
+      ["/lab/public\\..\\workflows", "GET"],
+      ["/lab/public%2F..%2Fworkflows", "GET"],
+      ["/lab//public", "GET"],
+      ["/lab/publicx", "GET"],
+      ["/lab/public-view", "GET"],
+      ["/lab/public-view", "PUT"],
+      ["/lab/public-view/needs?app=bench", "GET"],
+      ["/lab/public", "PUT"],
+      ["/lab/public/workflows", "DELETE"],
+      ["/lab/public/workflows", "POST"],
+      ["/lab/public/other", "POST"],
+      ["/lab/public/mcp/x", "POST"],
+      ["/lab/public/mcp/../../workflows/hello/run", "POST"],
+    ] as const) {
+      const res = await get(port, path, {}, method);
+      assert.equal(res.status, 401, `${method} ${path}`);
+    }
+  });
+
+  it("strut serves an anonymous visitor its public view alone, through the real bridge", async () => {
+    // Nothing on the record: nothing served — `hello` is published, not public.
+    const empty = await get(port, "/strut/public");
+    assert.equal(empty.status, 200, empty.body);
+    assert.deepEqual(JSON.parse(empty.body), { workflows: [], steps: [], concepts: [], types: [], apps: [] });
+    assert.equal(empty.headers["access-control-allow-origin"], "*");
+    assert.equal((await get(port, "/strut/public/workflows/hello")).status, 404);
+    // An encoded slash is no separator, for the gate or for strut: it stays
+    // under `/public`, and is not the private `/workflows`.
+    assert.equal((await get(port, "/strut/public/..%2Fworkflows")).status, 404);
+    // The record is a person's, behind the credential.
+    assert.equal((await get(port, "/strut/public-view")).status, 401);
+    const hive = { "x-api-token": API_TOKEN, "content-type": "application/json" };
+    const put = (body: unknown) => get(port, "/strut/public-view", hive, "PUT", JSON.stringify(body));
+    assert.equal((await put({ workflows: [{ name: "hello" }] })).status, 200);
+    try {
+      const hello = await get(port, "/strut/public/workflows/hello");
+      assert.equal(hello.status, 200, hello.body);
+      assert.equal(JSON.parse(hello.body).name, "hello");
+      // Its runs were not made public with it.
+      assert.equal((await get(port, "/strut/public/workflows/hello/runs")).status, 404);
+      assert.equal((await get(port, "/strut/public/workflows/chat")).status, 404);
+    } finally {
+      assert.equal((await put({})).status, 200);
+    }
+    // A public app's door answers with no credential: an MCP server whose
+    // one tool is `step_run`.
+    const mcp = await get(
+      port,
+      "/strut/public/mcp",
+      { "content-type": "application/json", accept: "application/json, text/event-stream" },
+      "POST",
+      JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    );
+    assert.equal(mcp.status, 200, mcp.body);
+    assert.match(mcp.body, /"step_run"/);
   });
 
   // ── The actor (plans/mothership-cost-control.md §5) ───────────────────
