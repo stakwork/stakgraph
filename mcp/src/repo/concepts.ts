@@ -484,7 +484,7 @@ export async function runReflection(args: ReflectRunArgs): Promise<{
     ],
     tools,
     providerOptions: providerOptions as any,
-    maxOutputTokens: maxOutputTokensFor(provider),
+    maxOutputTokens: maxOutputTokensFor(provider, modelId, providerOptions),
   });
   return parseReflection(result.text ?? "", concepts);
 }

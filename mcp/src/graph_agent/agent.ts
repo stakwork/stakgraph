@@ -276,7 +276,7 @@ async function prepareGraphAgent(
 function buildCallParams(prepared: PreparedGraphAgent) {
   const { finalPrompt, previousMessages, userMessage, provider, modelId, abortSignal } = prepared;
   const providerOptions = getProviderOptions(provider as any, undefined, modelId);
-  const maxOutputTokens = maxOutputTokensFor(provider);
+  const maxOutputTokens = maxOutputTokensFor(provider, modelId, providerOptions);
   const base = abortSignal
     ? { providerOptions, abortSignal, maxOutputTokens }
     : { providerOptions, maxOutputTokens };

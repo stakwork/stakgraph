@@ -1243,7 +1243,7 @@ function initialModelMessages(prepared: PreparedAgent): ModelMessage[] {
 function continueCallParams(prepared: PreparedAgent, messages: ModelMessage[]) {
   const { provider, modelId, abortSignal } = prepared;
   const providerOptions = getProviderOptions(provider as any, undefined, modelId);
-  const maxOutputTokens = maxOutputTokensFor(provider);
+  const maxOutputTokens = maxOutputTokensFor(provider, modelId, providerOptions);
   const base = abortSignal
     ? { providerOptions, abortSignal, maxOutputTokens }
     : { providerOptions, maxOutputTokens };
@@ -1254,7 +1254,7 @@ function continueCallParams(prepared: PreparedAgent, messages: ModelMessage[]) {
 function buildCallParams(prepared: PreparedAgent) {
   const { finalPrompt, previousMessages, userMessage, provider, modelId, abortSignal } = prepared;
   const providerOptions = getProviderOptions(provider as any, undefined, modelId);
-  const maxOutputTokens = maxOutputTokensFor(provider);
+  const maxOutputTokens = maxOutputTokensFor(provider, modelId, providerOptions);
   const base = abortSignal
     ? { providerOptions, abortSignal, maxOutputTokens }
     : { providerOptions, maxOutputTokens };
@@ -1429,7 +1429,15 @@ export async function get_context(
             : continuationNudge(
                 prepared.askQuestionsEnabled,
                 kind,
-                maxOutputTokensFor(prepared.provider)
+                maxOutputTokensFor(
+                  prepared.provider,
+                  prepared.modelId,
+                  getProviderOptions(
+                    prepared.provider as any,
+                    undefined,
+                    prepared.modelId
+                  )
+                )
               ),
         providerOptions: { stakgraph: { continuationNudge: true } },
       };

@@ -167,11 +167,17 @@ export function canonicalModelName(model?: string, provider?: Provider | string)
  */
 export function maxOutputTokensFor(provider?: string, modelId?: string): number {
   const fromEnv = Number(env.MAX_OUTPUT_TOKENS);
-  if (fromEnv > 0) return fromEnv;
+  // Haiku 4.5 caps at 64k and gets a 24k default thinking budget (provider.ts)
+  // that the AI SDK adds on top, so keep the sum within the limit.
+  const haikuCap =
+    provider === "anthropic" && modelId && /haiku-4-5|haiku-4\.5/.test(modelId)
+      ? 64_000 - 24_000
+      : Infinity;
+  if (fromEnv > 0) return Math.min(fromEnv, haikuCap);
   // Maple's backends refuse prompt + max_tokens past the window, so each
   // model has its own cap (MAPLE_MODELS); an unlisted one the smallest.
   if (provider === "maple") return (modelId && MAPLE_MODELS[modelId]?.maxOutput) || 12_288;
-  return provider === "anthropic" ? 128_000 : 64_000;
+  return provider === "anthropic" ? Math.min(128_000, haikuCap) : 64_000;
 }
 
 export interface ResolveOptions {

@@ -33,6 +33,35 @@ function countTokens(text: string): number {
   return Math.ceil(text.length / 3);
 }
 
+/** Known per-model max output tokens for Anthropic (first match wins). */
+const ANTHROPIC_MODEL_MAX_OUTPUT: Array<[RegExp, number]> = [
+  [/haiku-4-5|haiku-4\.5/, 64_000],
+  [/sonnet-4-5|sonnet-4\.5/, 64_000],
+  [/sonnet-4/, 64_000],
+  [/opus-4-1|opus-4\.1/, 64_000],
+];
+
+function anthropicThinkingBudget(providerOptions?: any): number {
+  const thinking = providerOptions?.anthropic?.thinking;
+  return thinking?.type === "enabled" ? Number(thinking.budgetTokens) || 0 : 0;
+}
+
+/** The AI SDK adds the thinking budget on top of maxOutputTokens, so leave room. */
+function capForModelLimit(
+  max: number,
+  provider?: string,
+  modelId?: string,
+  providerOptions?: any
+): number {
+  if (provider !== "anthropic" || !modelId) return max;
+  const hit = ANTHROPIC_MODEL_MAX_OUTPUT.find(([re]) => re.test(modelId));
+  if (!hit) return max;
+  return Math.max(
+    1,
+    Math.min(max, hit[1] - anthropicThinkingBudget(providerOptions))
+  );
+}
+
 /**
  * Hard ceiling on per-step output tokens (thinking + text). Without an
  * explicit value the provider falls back to its own per-model default —
@@ -49,11 +78,20 @@ function countTokens(text: string): number {
  * clamping, so they keep the conservative 64k default. Thinking tokens count
  * against this same budget, so headroom matters more than the visible text
  * length suggests.
+ *
+ * For Anthropic models with a known lower limit (e.g. Haiku 4.5 at 64k) the
+ * result, env override included, is capped at that limit minus any enabled
+ * thinking budget, since the SDK adds the budget on top.
  */
-export function maxOutputTokensFor(provider?: string): number {
+export function maxOutputTokensFor(
+  provider?: string,
+  modelId?: string,
+  providerOptions?: any
+): number {
   const fromEnv = Number(env.MAX_OUTPUT_TOKENS);
-  if (fromEnv > 0) return fromEnv;
-  return provider === "anthropic" ? 128_000 : 64_000;
+  const base =
+    fromEnv > 0 ? fromEnv : provider === "anthropic" ? 128_000 : 64_000;
+  return capForModelLimit(base, provider, modelId, providerOptions);
 }
 
 /**

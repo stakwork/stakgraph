@@ -212,6 +212,7 @@ await test("canonicalModelName: LLM_PROVIDER=maple makes a bare Maple id Maple's
 
 await test("maxOutputTokensFor: anthropic 128k, others 64k, env override wins", () => {
   eq(maxOutputTokensFor("anthropic"), 128_000, "anthropic");
+  eq(maxOutputTokensFor("anthropic", "claude-haiku-4-5"), 40_000, "haiku-4-5");
   eq(maxOutputTokensFor("openai"), 64_000, "openai");
   eq(maxOutputTokensFor(undefined), 64_000, "undefined");
   process.env.MAX_OUTPUT_TOKENS = "9000";
