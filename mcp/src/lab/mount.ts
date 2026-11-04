@@ -228,13 +228,15 @@ function labAuthorized(req: LabCredentials): LabGrant | undefined {
  * the token is a PERSON's and its scope `peer:person` (strut
  * plans/chained-orchestrators.md §2).
  *
- * One kind of request passes with none of the three: a read carrying one
+ * Two kinds of request pass with none of the three: a read carrying one
  * of strut's own read tokens as `?t=` — a FILE TOKEN on a run's artifacts
  * or a job's files, a CATALOG TOKEN on the published catalog and its
- * archives (`isTokenRead`) — strut judges that one.
+ * archives (`isTokenRead`) — strut judges that one; and a read of strut's
+ * PUBLIC VIEW, or a public app's call (`isPublicViewRead`) — strut serves
+ * that from its public-view record alone.
  */
 export function labAuth(req: Request, res: Response, next: NextFunction): void {
-  if (isUiAsset(req) || isTokenRead(req)) return next();
+  if (isUiAsset(req) || isTokenRead(req) || isPublicViewRead(req)) return next();
   const key = typeof req.query.key === "string" ? req.query.key : null;
   const granted = labAuthorized({ header: (name) => req.header(name), key });
   if (granted) {
@@ -302,6 +304,32 @@ function isTokenRead(req: Request): boolean {
     if (packages && url.searchParams.has("public")) return true;
     if (!url.searchParams.has("t")) return false;
     return /^\/artifacts\/[^/]+(\/|$)/.test(url.pathname) || /^\/jobs\/[^/]+\/files(\/|$)/.test(url.pathname) || packages;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * strut's PUBLIC VIEW (strut plans/public-surface.md §3, §5, §10; specs/
+ * API.md §17): a GET/HEAD under `/public` — and the OPTIONS of a browser's
+ * preflight — or a public app's door, `POST /public/mcp`. Open to anyone:
+ * strut answers every `/public` route from its public-view record alone,
+ * whatever its gate's mode (the lab strut is unkeyed behind this gate), and
+ * anything not on the record is a 404 — with nothing on it, nothing is
+ * served. The door serves `step_run` alone, for the VISITOR identity a
+ * public app's document carries: reads only, with no actor, nothing kept.
+ *
+ * Not `/public-view` (the record itself, a person's: behind the credential
+ * like the rest), no other method, and no other POST. The path is parsed as
+ * `isUiAsset` parses it, so a path that resolves elsewhere
+ * (`/public/../workflows`) does not pass.
+ */
+function isPublicViewRead(req: Request): boolean {
+  try {
+    const { pathname } = new URL(`http://localhost${req.url}`);
+    if (req.method === "POST") return pathname === "/public/mcp";
+    if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS") return false;
+    return /^\/public(?:\/|$)/.test(pathname);
   } catch {
     return false;
   }
