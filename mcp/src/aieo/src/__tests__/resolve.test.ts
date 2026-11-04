@@ -222,6 +222,28 @@ await test("maxOutputTokensFor: anthropic 128k, others 64k, env override wins", 
   }
 });
 
+await test("maxOutputTokensFor: an Anthropic model's own limit, less an enabled thinking budget", () => {
+  eq(maxOutputTokensFor("anthropic", "claude-haiku-4-5"), 64_000, "haiku-4-5");
+  eq(maxOutputTokensFor("anthropic", "claude-haiku-4-5-20251001"), 64_000, "dated id");
+  eq(maxOutputTokensFor("anthropic", "claude-sonnet-4-5"), 64_000, "sonnet-4-5");
+  eq(maxOutputTokensFor("anthropic", "claude-sonnet-4-6"), 128_000, "sonnet-4-6");
+  eq(maxOutputTokensFor("anthropic", "claude-sonnet-5-5"), 128_000, "sonnet-5-5");
+  const enabled = { anthropic: { thinking: { type: "enabled", budgetTokens: 24_000 } } };
+  const disabled = { anthropic: { thinking: { type: "disabled" } } };
+  const adaptive = { anthropic: { thinking: { type: "adaptive" } } };
+  eq(maxOutputTokensFor("anthropic", "claude-haiku-4-5", enabled), 40_000, "haiku-4-5 + 24k budget");
+  eq(maxOutputTokensFor("anthropic", "claude-haiku-4-5", disabled), 64_000, "haiku-4-5, thinking off");
+  eq(maxOutputTokensFor("anthropic", "claude-sonnet-5-5", adaptive), 128_000, "adaptive");
+  process.env.MAX_OUTPUT_TOKENS = "200000";
+  try {
+    eq(maxOutputTokensFor("anthropic", "claude-haiku-4-5"), 64_000, "env within the limit");
+    eq(maxOutputTokensFor("anthropic", "claude-haiku-4-5", enabled), 40_000, "env within the limit, with thinking");
+    eq(maxOutputTokensFor("openai"), 200_000, "env elsewhere as given");
+  } finally {
+    delete process.env.MAX_OUTPUT_TOKENS;
+  }
+});
+
 await test("maxOutputTokensFor: Maple's per model, under a tenth of the window", () => {
   eq(maxOutputTokensFor("maple", "gemma4-31b"), 24_576, "gemma4-31b");
   eq(maxOutputTokensFor("maple", "gpt-oss-120b"), 12_288, "gpt-oss-120b");

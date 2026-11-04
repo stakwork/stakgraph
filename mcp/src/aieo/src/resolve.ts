@@ -157,21 +157,46 @@ export function canonicalModelName(model?: string, provider?: Provider | string)
 }
 
 /**
- * Per-call output-token cap. An explicit MAX_OUTPUT_TOKENS env always wins.
- * Otherwise the default is provider-aware: Anthropic runs at 128k because
- * @ai-sdk/anthropic clamps known models down to their true per-model max
- * instead of erroring, while OpenAI-compatible hosts (OpenRouter et al)
- * reject max_tokens above the model limit rather than clamping, so they keep
- * the conservative 64k default. Thinking tokens count against this same
- * budget, so headroom matters more than the visible text length suggests.
+ * Per-call output-token cap. Anthropic runs at the model's own limit (128k,
+ * 64k for the 4.5 models). @ai-sdk/anthropic sends `maxOutputTokens` plus
+ * an `enabled` thinking budget as `max_tokens` and, for a model it knows,
+ * clamps a sum over the limit with a warning on every call — so the budget
+ * in `providerOptions` is taken off here and the request fits as sent.
+ * OpenAI-compatible hosts (OpenRouter et al) reject max_tokens above the
+ * model limit rather than clamping, so they keep the conservative 64k
+ * default. An explicit MAX_OUTPUT_TOKENS env wins, within an Anthropic
+ * model's limit.
  */
-export function maxOutputTokensFor(provider?: string, modelId?: string): number {
+export function maxOutputTokensFor(
+  provider?: string,
+  modelId?: string,
+  providerOptions?: unknown,
+): number {
   const fromEnv = Number(env.MAX_OUTPUT_TOKENS);
+  if (provider === "anthropic") {
+    const limit = anthropicMaxOutput(modelId) - thinkingBudget(providerOptions);
+    return fromEnv > 0 ? Math.min(fromEnv, limit) : limit;
+  }
   if (fromEnv > 0) return fromEnv;
   // Maple's backends refuse prompt + max_tokens past the window, so each
   // model has its own cap (MAPLE_MODELS); an unlisted one the smallest.
   if (provider === "maple") return (modelId && MAPLE_MODELS[modelId]?.maxOutput) || 12_288;
-  return provider === "anthropic" ? 128_000 : 64_000;
+  return 64_000;
+}
+
+/** An Anthropic model's output limit, matched by substring as
+ *  @ai-sdk/anthropic matches it, so a dated id counts. */
+function anthropicMaxOutput(modelId?: string): number {
+  return modelId && /claude-(haiku|sonnet|opus)-4-5/.test(modelId) ? 64_000 : 128_000;
+}
+
+/** The `enabled` thinking budget in Anthropic provider options, else 0
+ *  (adaptive thinking spends inside max_tokens). */
+function thinkingBudget(providerOptions: unknown): number {
+  const thinking = (
+    providerOptions as { anthropic?: { thinking?: { type?: string; budgetTokens?: number } } } | undefined
+  )?.anthropic?.thinking;
+  return thinking?.type === "enabled" ? (thinking.budgetTokens ?? 0) : 0;
 }
 
 export interface ResolveOptions {

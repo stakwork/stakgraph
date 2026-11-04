@@ -1,7 +1,6 @@
 import { ModelMessage, ToolSet, StepResult, StopCondition } from "ai";
 import { SessionConfig, truncateToolResult } from "./session.js";
 import { createByModelName, TikTokenizer } from "@microsoft/tiktokenizer";
-import { env } from "../env.js";
 
 const TRUNCATED = "<TRUNCATED>";
 const CONTEXT_THRESHOLD = 0.9;
@@ -38,23 +37,9 @@ function countTokens(text: string): number {
  * explicit value the provider falls back to its own per-model default —
  * 4096 for any model id missing from its capability table — which can
  * truncate a deep thinking pass mid-step and silently end the tool loop
- * with no answer.
+ * with no answer. aieo's, so the repo agents and resolveModel agree.
  */
-/**
- * Per-call output-token cap. An explicit MAX_OUTPUT_TOKENS env always wins.
- * Otherwise the default is provider-aware: Anthropic runs at 128k because
- * @ai-sdk/anthropic clamps known models down to their true per-model max
- * (e.g. Opus 5 at 128k) instead of erroring, while OpenAI-compatible hosts
- * (OpenRouter et al) reject max_tokens above the model limit rather than
- * clamping, so they keep the conservative 64k default. Thinking tokens count
- * against this same budget, so headroom matters more than the visible text
- * length suggests.
- */
-export function maxOutputTokensFor(provider?: string): number {
-  const fromEnv = Number(env.MAX_OUTPUT_TOKENS);
-  if (fromEnv > 0) return fromEnv;
-  return provider === "anthropic" ? 128_000 : 64_000;
-}
+export { maxOutputTokensFor } from "../aieo/src/index.js";
 
 /**
  * Strip the userinfo section out of any URL embedded in `text`.
