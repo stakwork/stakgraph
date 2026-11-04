@@ -16,6 +16,8 @@ for (const k of [
   "OPENAI_API_KEY",
   "OPENROUTER_API_KEY",
   "XAI_API_KEY",
+  "MAPLE_API_KEY",
+  "MAPLE_BASE_URL",
 ]) {
   delete process.env[k];
 }
@@ -27,7 +29,16 @@ const {
   maxOutputTokensFor,
   resolveModel,
 } = await import("../resolve.js");
-const { API_KEY_ENV, KEY_HEADER_ENV, PROVIDERS, getModel, getModelDetails } = await import("../provider.js");
+const {
+  API_KEY_ENV,
+  KEY_HEADER_ENV,
+  PROVIDERS,
+  getModel,
+  getModelDetails,
+  getProviderOptions,
+  computeSessionCost,
+  mapleReasoningEffort,
+} = await import("../provider.js");
 const { generateText } = await import("ai");
 const { createServer } = await import("node:http");
 
@@ -68,7 +79,7 @@ async function test(label: string, fn: () => unknown | Promise<unknown>) {
 
 await test("listModels: one entry per alias, PROVIDERS order, defaults flagged", () => {
   const all = listModels();
-  eq(all.map((m) => m.alias), ["sonnet", "opus", "haiku", "gemini", "gpt", "kimi", "glm", "grok"], "aliases");
+  eq(all.map((m) => m.alias), ["sonnet", "opus", "haiku", "gemini", "gpt", "kimi", "glm", "grok", "maple"], "aliases");
   eq(all.filter((m) => m.default).map((m) => m.provider), PROVIDERS, "exactly one default per provider");
   const sonnet = all.find((m) => m.alias === "sonnet")!;
   eq([sonnet.provider, sonnet.modelId, sonnet.default], ["anthropic", "claude-sonnet-5-5", true], "sonnet");
@@ -80,6 +91,7 @@ await test("listModels: one entry per alias, PROVIDERS order, defaults flagged",
   eq(all.find((m) => m.alias === "gemini")!.modelId, "gemini-3.8-flash", "gemini");
   eq(all.find((m) => m.alias === "glm")!.modelId, "~z-ai/glm-flash-latest", "glm");
   eq(all.find((m) => m.alias === "glm")!.default, false, "kimi stays the openrouter default");
+  eq(all.find((m) => m.alias === "maple")!.modelId, "gemma4-31b", "maple");
 });
 
 await test("API_KEY_ENV covers every provider", () => {
@@ -136,6 +148,11 @@ const canonCases: [string | undefined, string | undefined, [string, string, stri
   ["openrouter/", undefined, ["openrouter", "moonshotai/kimi-k3", "openrouter/moonshotai/kimi-k3"]],
   ["moonshotai/kimi-k2.6", "openrouter", ["openrouter", "moonshotai/kimi-k2.6", "openrouter/moonshotai/kimi-k2.6"]], // explicit provider
   ["anthropic/claude-sonnet-5-5", "openai", ["openai", "claude-sonnet-5-5", "openai/claude-sonnet-5-5"]], // explicit provider wins (mirrors getModel)
+  ["maple/gemma4-31b", undefined, ["maple", "gemma4-31b", "maple/gemma4-31b"]],
+  ["maple/gpt-oss-120b", undefined, ["maple", "gpt-oss-120b", "maple/gpt-oss-120b"]],
+  ["maple", undefined, ["maple", "gemma4-31b", "maple/gemma4-31b"]],                              // the provider's own alias
+  [undefined, "maple", ["maple", "gemma4-31b", "maple/gemma4-31b"]],
+  ["kimi-k3", "maple", ["maple", "kimi-k3", "maple/kimi-k3"]],                                     // explicit provider
 ];
 for (const [model, provider, [p, id, name]] of canonCases) {
   await test(`canonicalModelName(${JSON.stringify(model)}, ${JSON.stringify(provider)}) → ${name}`, () => {
@@ -179,6 +196,18 @@ await test("canonicalModelName: LLM_PROVIDER env disarms the trap (it names the 
   }
 });
 
+await test("canonicalModelName: a bare Maple id never picks Maple — it says how to", () =>
+  throwsWith(() => canonicalModelName("gemma4-31b"), 'On Maple it is "maple/gemma4-31b"', "bare maple id"));
+
+await test("canonicalModelName: LLM_PROVIDER=maple makes a bare Maple id Maple's", () => {
+  process.env.LLM_PROVIDER = "maple";
+  try {
+    eq(canonicalModelName("gpt-oss-120b").name, "maple/gpt-oss-120b", "ref");
+  } finally {
+    delete process.env.LLM_PROVIDER;
+  }
+});
+
 // ── maxOutputTokensFor ───────────────────────────────────────────────────
 
 await test("maxOutputTokensFor: anthropic 128k, others 64k, env override wins", () => {
@@ -191,6 +220,13 @@ await test("maxOutputTokensFor: anthropic 128k, others 64k, env override wins", 
   } finally {
     delete process.env.MAX_OUTPUT_TOKENS;
   }
+});
+
+await test("maxOutputTokensFor: Maple's per model, under a tenth of the window", () => {
+  eq(maxOutputTokensFor("maple", "gemma4-31b"), 24_576, "gemma4-31b");
+  eq(maxOutputTokensFor("maple", "gpt-oss-120b"), 12_288, "gpt-oss-120b");
+  eq(maxOutputTokensFor("maple", "deepseek-v4-1-flash"), 64_000, "deepseek-v4-1-flash");
+  eq(maxOutputTokensFor("maple", "something-new"), 12_288, "unlisted");
 });
 
 // ── resolveModel ─────────────────────────────────────────────────────────
@@ -284,6 +320,122 @@ await test("resolveModel: the trap fires before any key lookup", async () => {
     "trap",
   );
   eq(calls, 0, "getSecret never called");
+});
+
+// ── maple ────────────────────────────────────────────────────────────────
+
+await test("resolveModel: maple is a chat-completions model with its window and cap", async () => {
+  const r = await resolveModel({ model: "maple/gemma4-31b", apiKey: "k" });
+  const m = r.model as { modelId?: string; provider?: string };
+  eq([m.provider, m.modelId], ["openai.chat", "gemma4-31b"], "SDK model");
+  eq([r.contextLimit, r.maxOutputTokens], [262_144, 24_576], "limits");
+  eq((await resolveModel({ model: "maple/gpt-oss-120b", apiKey: "k" })).contextLimit, 131_072, "gpt-oss");
+});
+
+await test("mapleReasoningEffort: the nearest effort the model takes, ties to more thinking", () => {
+  const cases: [string, string, string][] = [
+    ["gemma4-31b", "none", "none"],
+    ["gemma4-31b", "medium", "medium"],
+    ["gpt-oss-120b", "none", "low"],
+    ["gpt-oss-120b", "minimal", "low"],
+    ["gpt-oss-120b", "medium", "medium"],
+    ["gpt-oss-120b", "xhigh", "high"],
+    ["gpt-oss-120b", "max", "high"],
+    ["glm-5-3", "none", "low"],
+    ["glm-5-3", "medium", "high"],
+    ["glm-5-3-flash", "xhigh", "max"],
+    ["kimi-k3", "none", "none"],
+    ["kimi-k3", "minimal", "low"],
+    ["kimi-k3", "medium", "high"],
+    ["deepseek-v4-1-flash", "medium", "high"],
+    ["deepseek-v4-1-flash", "xhigh", "xhigh"],
+    ["llama3-3-70b", "high", "high"],
+    ["unlisted", "medium", "medium"],
+    ["gpt-oss-120b", "provider-default", "provider-default"],
+  ];
+  for (const [model, asked, sent] of cases) eq(mapleReasoningEffort(model, asked), sent, `${model} ${asked}`);
+});
+
+await test("getProviderOptions(maple): fast is the least thinking the model allows, thinking is high", () => {
+  eq(getProviderOptions("maple", "fast", "maple/gemma4-31b"), { openai: { reasoningEffort: "none" } }, "gemma fast");
+  eq(getProviderOptions("maple", "fast", "gpt-oss-120b"), { openai: { reasoningEffort: "low" } }, "gpt-oss fast");
+  eq(getProviderOptions("maple", "thinking", "maple"), { openai: { reasoningEffort: "high" } }, "default thinking");
+  eq(getProviderOptions("maple", undefined, "maple/kimi-k3"), { openai: {} }, "the model's default");
+});
+
+await test("computeSessionCost(maple): Maple's own rates, a cached prompt token as input", () => {
+  const usage = { input: 600_000, cache_read: 400_000, cache_write: 0, output: 1_000_000 };
+  eq(computeSessionCost("maple", usage, "gemma4-31b").toFixed(4), "2.8000", "gemma4-31b: 1M in at 0.80, 1M out at 2.00");
+  eq(computeSessionCost("maple", usage, "gpt-oss-120b").toFixed(4), "1.5000", "gpt-oss-120b");
+  eq(computeSessionCost("maple", usage, "unlisted").toFixed(4), "33.0000", "unlisted: the dearest listed rate");
+});
+
+await test("maple on the wire: MAPLE_BASE_URL via getSecret, /chat/completions, the effort the model takes", async () => {
+  const seen: { path?: string; auth?: string; effort?: unknown; model?: unknown }[] = [];
+  const server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const json = JSON.parse(body);
+      seen.push({ path: req.url, auth: req.headers.authorization, effort: json.reasoning_effort, model: json.model });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({
+        id: "x", object: "chat.completion", created: 0, model: json.model,
+        choices: [{ index: 0, message: { role: "assistant", content: "391" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 100, completion_tokens: 10, prompt_tokens_details: { cached_tokens: 40 } },
+      }));
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const root = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const store = (entries: Record<string, string>) => async (name: string) => entries[name];
+  try {
+    const asked: string[] = [];
+    const gemma = await resolveModel({
+      model: "maple/gemma4-31b",
+      getSecret: async (name) => (asked.push(name), ({ MAPLE_API_KEY: "mk", MAPLE_BASE_URL: `${root}/v1` } as Record<string, string>)[name]),
+    });
+    eq(asked, ["MAPLE_API_KEY", "MAPLE_BASE_URL"], "asked by name");
+    const r = await generateText({ model: gemma.model, prompt: "hi", reasoning: "none", maxRetries: 0 } as any);
+    eq(r.text, "391", "text");
+    eq([r.usage.inputTokens, r.usage.outputTokens, r.usage.inputTokenDetails?.cacheReadTokens], [100, 10, 40], "usage");
+    // gpt-oss takes low | medium | high: none is sent as low
+    const oss = await resolveModel({ model: "maple/gpt-oss-120b", getSecret: store({ MAPLE_API_KEY: "mk", MAPLE_BASE_URL: `${root}/v1` }) });
+    await generateText({ model: oss.model, prompt: "hi", reasoning: "none", maxRetries: 0 } as any);
+    // providerOptions too, and a caller's baseUrl (a bare root gets /v1) wins over MAPLE_BASE_URL
+    const glm = await resolveModel({ model: "maple/glm-5-3", baseUrl: root, getSecret: store({ MAPLE_API_KEY: "mk", MAPLE_BASE_URL: "http://127.0.0.1:1/v1" }) });
+    await generateText({ model: glm.model, prompt: "hi", providerOptions: getProviderOptions("maple", undefined, "glm-5-3") as any, reasoning: "medium", maxRetries: 0 } as any);
+    // the env-only path (getModel)
+    process.env.MAPLE_API_KEY = "env-key";
+    process.env.MAPLE_BASE_URL = `${root}/v1`;
+    await generateText({ model: getModel("maple", { modelName: "maple/kimi-k3" }), prompt: "hi", maxRetries: 0 });
+    eq(seen, [
+      { path: "/v1/chat/completions", auth: "Bearer mk", effort: "none", model: "gemma4-31b" },
+      { path: "/v1/chat/completions", auth: "Bearer mk", effort: "low", model: "gpt-oss-120b" },
+      { path: "/v1/chat/completions", auth: "Bearer mk", effort: "high", model: "glm-5-3" },
+      { path: "/v1/chat/completions", auth: "Bearer env-key", model: "kimi-k3" },
+    ], "requests");
+  } finally {
+    server.close();
+    delete process.env.MAPLE_API_KEY;
+    delete process.env.MAPLE_BASE_URL;
+  }
+});
+
+await test("maple: no MAPLE_BASE_URL anywhere → the proxy on localhost:8080", async () => {
+  const urls: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: any) => {
+    urls.push(typeof input === "string" ? input : input.url);
+    throw new Error("recorded");
+  }) as typeof fetch;
+  try {
+    const r = await resolveModel({ model: "maple/gemma4-31b", apiKey: "k", getSecret: async () => undefined });
+    await throwsWith(() => generateText({ model: r.model, prompt: "hi", maxRetries: 0 }), "recorded", "request");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  eq(urls, ["http://localhost:8080/v1/chat/completions"], "default url");
 });
 
 // ── KEY_HEADER_ENV: an organization-wide Anthropic key names its workspace ──

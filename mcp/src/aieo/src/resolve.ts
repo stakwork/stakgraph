@@ -24,7 +24,10 @@
 import type { LanguageModel } from "ai";
 import {
   API_KEY_ENV,
+  BASE_URL_ENV,
+  DEFAULT_BASE_URLS,
   DEFAULT_MODELS,
+  MAPLE_MODELS,
   MODELS,
   PROVIDERS,
   getContextLimit,
@@ -132,6 +135,11 @@ export function canonicalModelName(model?: string, provider?: Provider | string)
         `For an OpenRouter-hosted model write "openrouter/${model}"; otherwise pass the provider explicitly.`,
     );
   }
+  // A Maple id names no provider by itself (gemma4-31b is served elsewhere
+  // too): Maple only when the name says so, never by inference.
+  if (model && !provider && !parsed.provider && !envProvider() && MAPLE_MODELS[model]) {
+    throw new Error(`Model "${model}" names no provider. On Maple it is "maple/${model}".`);
+  }
 
   let modelId = parsed.modelId;
   if (modelId && ALIASES.has(modelId)) {
@@ -157,9 +165,12 @@ export function canonicalModelName(model?: string, provider?: Provider | string)
  * the conservative 64k default. Thinking tokens count against this same
  * budget, so headroom matters more than the visible text length suggests.
  */
-export function maxOutputTokensFor(provider?: string): number {
+export function maxOutputTokensFor(provider?: string, modelId?: string): number {
   const fromEnv = Number(env.MAX_OUTPUT_TOKENS);
   if (fromEnv > 0) return fromEnv;
+  // Maple's backends refuse prompt + max_tokens past the window, so each
+  // model has its own cap (MAPLE_MODELS); an unlisted one the smallest.
+  if (provider === "maple") return (modelId && MAPLE_MODELS[modelId]?.maxOutput) || 12_288;
   return provider === "anthropic" ? 128_000 : 64_000;
 }
 
@@ -172,7 +183,8 @@ export interface ResolveOptions {
   /**
    * Async key source consulted by env-var NAME ("OPENAI_API_KEY", …) before
    * process.env — a host's own secret store. Only called when `apiKey` is
-   * absent.
+   * absent, and for a provider's own endpoint (BASE_URL_ENV: MAPLE_BASE_URL)
+   * when `baseUrl` is.
    */
   getSecret?: (envName: string) => Promise<string | undefined>;
   baseUrl?: string;
@@ -194,7 +206,8 @@ export interface ResolvedModel extends ModelRef {
  * and the output-token cap. Key precedence: `apiKey` → `getSecret(envName)`
  * → process.env; none → an error that names the env var. A looked-up key's
  * KEY_HEADER_ENV settings (Anthropic's workspace) are looked up the same way
- * and sent as headers. Logs nothing.
+ * and sent as headers, and so is a BASE_URL_ENV endpoint (Maple's proxy,
+ * MAPLE_BASE_URL) unless the caller passed `baseUrl`.
  */
 export async function resolveModel(opts: ResolveOptions = {}): Promise<ResolvedModel> {
   const ref = canonicalModelName(opts.model, opts.provider);
@@ -217,12 +230,19 @@ export async function resolveModel(opts: ResolveOptions = {}): Promise<ResolvedM
     const fromKey = keyHeaders(ref.provider, (name) => found[name]);
     if (fromKey) headers = { ...fromKey, ...opts.headers };
   }
+  // A provider whose endpoint is the deployment's own (Maple's proxy): its
+  // URL where its key would be (getSecret → env), else the default. A
+  // caller's baseUrl wins.
+  const baseUrlEnv = BASE_URL_ENV[ref.provider];
+  const baseUrl =
+    normalizeApiKey(opts.baseUrl) ??
+    (baseUrlEnv ? (await lookup(baseUrlEnv)) ?? DEFAULT_BASE_URLS[ref.provider] : undefined);
   // The canonical name carries exactly one provider prefix, which getModel
   // strips — so an OpenRouter id like "openrouter/auto" survives intact.
   const model = getModel(ref.provider, {
     modelName: ref.name,
     apiKey,
-    baseUrl: opts.baseUrl,
+    baseUrl,
     headers,
     abortSignal: opts.abortSignal,
     timeoutMs: opts.timeoutMs,
@@ -232,6 +252,6 @@ export async function resolveModel(opts: ResolveOptions = {}): Promise<ResolvedM
     model,
     apiKey,
     contextLimit: getContextLimit(ref.modelId, ref.provider),
-    maxOutputTokens: maxOutputTokensFor(ref.provider),
+    maxOutputTokens: maxOutputTokensFor(ref.provider, ref.modelId),
   };
 }

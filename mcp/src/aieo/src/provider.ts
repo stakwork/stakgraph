@@ -10,7 +10,7 @@ import { Logger } from "./logger.js";
 import { createOpenRouter, OpenRouterChatSettings } from "@openrouter/ai-sdk-provider";
 import { env } from "./env.js";
 
-export type Provider = "anthropic" | "google" | "openai" | "openrouter" | "xai";
+export type Provider = "anthropic" | "google" | "openai" | "openrouter" | "xai" | "maple";
 
 /**
  * Optional LLM gateway URL (e.g. Bifrost: https://github.com/maximhq/bifrost,
@@ -37,9 +37,13 @@ export const GATEWAY_PATHS: Record<Provider, string> = {
   openai: "/openai/v1",
   openrouter: "/openai/v1",
   xai: "/openai/v1",
+  // Maple's own proxy path, so a bare proxy root ("http://maple:8080") gets
+  // its /v1. Maple never rides LLM_GATEWAY_URL: its proxy is the endpoint.
+  maple: "/v1",
 };
 
 export function getGatewayBaseURL(provider: Provider): string | undefined {
+  if (provider === "maple") return undefined;
   return LLM_GATEWAY_URL ? `${LLM_GATEWAY_URL}${GATEWAY_PATHS[provider]}` : undefined;
 }
 
@@ -145,10 +149,11 @@ export const PROVIDERS: Provider[] = [
   "openai",
   "openrouter",
   "xai",
+  "maple",
 ];
 
 // shortcuts to latest models
-export type ModelName = "sonnet" | "opus" | "haiku" | "gemini" | "gpt" | "kimi" | "glm" | "grok";
+export type ModelName = "sonnet" | "opus" | "haiku" | "gemini" | "gpt" | "kimi" | "glm" | "grok" | "maple";
 
 type ModelId = string;
 
@@ -173,6 +178,11 @@ export const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
   xai: {
     grok: "grok-4.7",
   },
+  // The provider's own name is its alias, so "maple" alone names Maple; a
+  // bare Maple id ("gemma4-31b") never does — write "maple/gemma4-31b".
+  maple: {
+    maple: "gemma4-31b",
+  },
 };
 
 export const DEFAULT_MODELS: Record<Provider, string> = {
@@ -181,6 +191,7 @@ export const DEFAULT_MODELS: Record<Provider, string> = {
   openai: MODELS.openai.gpt!,
   openrouter: MODELS.openrouter.kimi!,
   xai: MODELS.xai.grok!,
+  maple: MODELS.maple.maple!,
 };
 
 // Light/cheap models for batch operations (descriptions, learnings, etc.)
@@ -190,7 +201,118 @@ const LIGHT_MODELS: Record<Provider, string> = {
   openai: "gpt-4.1-mini",
   openrouter: "moonshotai/kimi-k2.6",
   xai: "grok-4-fast-non-reasoning",
+  maple: "gemma4-31b",
 };
+
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+const EFFORT_ORDER: ReasoningEffort[] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+export interface MapleModel {
+  /** Context window (prompt + output), tokens. */
+  context: number;
+  /** Per-call output cap. The backend refuses a call whose prompt plus
+   *  max_tokens passes the window (gemma4-31b: 262,000 passes, 262,144 is a
+   *  400), so the cap stays under 10% of it — a prompt can reach strut's
+   *  compaction mark (90%) and still be answered. */
+  maxOutput: number;
+  pricing: TokenPricing;
+  /** The `reasoning_effort` values the model takes; any other is a 400.
+   *  Absent: anything is taken (gemma4-31b: `none` or no field is no
+   *  thinking, any other value turns it on; llama3-3-70b ignores it). */
+  efforts?: ReasoningEffort[];
+}
+
+/**
+ * Maple (maple.ai): open models in attested enclaves, behind Maple's
+ * OpenAI-compatible proxy (`ghcr.io/mapleprivacylabs/maple-proxy`), which
+ * the deployment runs itself. Chat Completions only, no Responses API.
+ * Context and efforts from the proxy's `GET /v1/models` and its 400s
+ * (2026-11-03); prices are Maple's per 1M tokens, input / output. Maple
+ * publishes no cached-input price, so a cached prompt token (gpt-oss reports
+ * them) is billed as input.
+ */
+export const MAPLE_MODELS: Record<string, MapleModel> = {
+  "gemma4-31b": { context: 262_144, maxOutput: 24_576, pricing: { inputTokenPrice: 0.8, outputTokenPrice: 2.0 } },
+  "gpt-oss-120b": {
+    context: 131_072,
+    maxOutput: 12_288,
+    pricing: { inputTokenPrice: 0.3, outputTokenPrice: 1.2 },
+    efforts: ["low", "medium", "high"],
+  },
+  "glm-5-3-flash": {
+    context: 1_048_576,
+    maxOutput: 64_000,
+    pricing: { inputTokenPrice: 0.8, outputTokenPrice: 2.5 },
+    efforts: ["low", "high", "max"],
+  },
+  "glm-5-3": {
+    context: 262_144,
+    maxOutput: 24_576,
+    pricing: { inputTokenPrice: 3.6, outputTokenPrice: 11.5 },
+    efforts: ["low", "high", "max"],
+  },
+  "kimi-k3": {
+    context: 262_144,
+    maxOutput: 24_576,
+    pricing: { inputTokenPrice: 8.0, outputTokenPrice: 25.0 },
+    efforts: ["none", "low", "high", "max"],
+  },
+  "deepseek-v4-1-flash": {
+    context: 1_048_576,
+    maxOutput: 64_000,
+    pricing: { inputTokenPrice: 0.65, outputTokenPrice: 1.45 },
+    efforts: ["none", "low", "high", "xhigh", "max"],
+  },
+  "llama3-3-70b": { context: 131_072, maxOutput: 12_288, pricing: { inputTokenPrice: 3.5, outputTokenPrice: 5.5 } },
+};
+
+/**
+ * The `reasoning_effort` to send Maple for `modelId` when `requested` was
+ * asked for: as asked when the model takes it, else the nearest value it
+ * takes, a tie going to more thinking (gpt-oss: none → low, xhigh → high;
+ * GLM: medium → high). An unknown model or value is sent as asked.
+ */
+export function mapleReasoningEffort(modelId: string, requested: string): string {
+  const efforts = MAPLE_MODELS[modelId]?.efforts;
+  const at = EFFORT_ORDER.indexOf(requested as ReasoningEffort);
+  if (!efforts || at < 0 || efforts.includes(requested as ReasoningEffort)) return requested;
+  let best = efforts[0];
+  let bestDistance = Infinity;
+  for (const e of efforts) {
+    const d = Math.abs(EFFORT_ORDER.indexOf(e) - at);
+    if (d < bestDistance || (d === bestDistance && EFFORT_ORDER.indexOf(e) > EFFORT_ORDER.indexOf(best))) {
+      best = e;
+      bestDistance = d;
+    }
+  }
+  return best;
+}
+
+/**
+ * Maple's fetch: the request's `reasoning_effort` made one the model takes.
+ * The AI SDK sends a call's `reasoning` (and `providerOptions.openai.
+ * reasoningEffort`) as it is, and every Maple model but gemma4 and llama
+ * answers a value outside its own short list with a 400.
+ */
+function mapleFetch(inner: typeof fetch): typeof fetch {
+  return async (input, init) => {
+    const body = init?.body;
+    if (typeof body === "string" && body.includes('"reasoning_effort"')) {
+      try {
+        const json = JSON.parse(body);
+        if (typeof json?.model === "string" && typeof json.reasoning_effort === "string") {
+          const effort = mapleReasoningEffort(json.model, json.reasoning_effort);
+          if (effort !== json.reasoning_effort) {
+            init = { ...init, body: JSON.stringify({ ...json, reasoning_effort: effort }) };
+          }
+        }
+      } catch {
+        // Not JSON: sent as it is.
+      }
+    }
+    return inner(input, init);
+  };
+}
 
 export function getLightModelForProvider(provider: Provider): string {
   return LIGHT_MODELS[provider];
@@ -212,7 +334,10 @@ export interface TokenUsageForCost {
 
 export function computeSessionCost(provider: Provider, usage: TokenUsageForCost, modelId?: string, actualCost?: number): number {
   if (typeof actualCost === "number" && actualCost >= 0) return actualCost;
-  const pricing = (modelId ? getModelPricing(modelId) : undefined) ?? TOKEN_PRICING[provider];
+  const pricing =
+    (provider === "maple" && modelId ? MAPLE_MODELS[modelId]?.pricing : undefined) ??
+    (modelId ? getModelPricing(modelId) : undefined) ??
+    TOKEN_PRICING[provider];
   if (!pricing) return 0;
   const inputCost = (usage.input / 1_000_000) * pricing.inputTokenPrice;
   const cacheReadCost = (usage.cache_read / 1_000_000) * (pricing.cacheReadPrice ?? pricing.inputTokenPrice);
@@ -245,6 +370,9 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
       return "openai";
     case "grok":
       return "xai";
+    // Only the alias: a bare Maple id is no one's (canonicalModelName says so).
+    case "maple":
+      return "maple";
     // Full model IDs
     case "claude-sonnet-5-5":
     case "claude-sonnet-5":
@@ -317,6 +445,20 @@ export const API_KEY_ENV: Record<Provider, string> = {
   openai: "OPENAI_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
   xai: "XAI_API_KEY",
+  maple: "MAPLE_API_KEY",
+};
+
+/**
+ * A provider whose endpoint is the deployment's own (Maple's proxy): the env
+ * var NAME its base URL is read from — through the host's getSecret first,
+ * like the key (resolve.ts) — and the URL when none is set. A caller's
+ * `baseUrl` wins over both. The full URL, `/v1` included.
+ */
+export const BASE_URL_ENV: Partial<Record<Provider, string>> = {
+  maple: "MAPLE_BASE_URL",
+};
+export const DEFAULT_BASE_URLS: Partial<Record<Provider, string>> = {
+  maple: "http://localhost:8080/v1",
 };
 
 /**
@@ -626,6 +768,7 @@ export function getModel(
       "kimi",
       "glm",
       "grok",
+      "maple",
     ];
     if (knownShortcuts.includes(opts.modelName)) {
       modelId = getModelForProvider(provider, opts.modelName as ModelName);
@@ -644,11 +787,18 @@ export function getModel(
   // Explicit baseUrl from caller takes precedence over the global LLM gateway.
   // Normalize caller-supplied URLs so a bare gateway root (e.g. the swarm
   // host:port) gets the provider's drop-in path appended.
+  // A provider with an endpoint of its own (Maple's proxy) reads it from env
+  // here; resolve.ts asks the host's getSecret first and passes it in.
+  const ownBaseUrl = BASE_URL_ENV[provider]
+    ? normalizeApiKey(env[BASE_URL_ENV[provider]!]) ?? DEFAULT_BASE_URLS[provider]
+    : undefined;
   const baseURL = opts?.baseUrl
     ? gatewayUrlFor(provider, opts.baseUrl)
-    : getGatewayBaseURL(provider);
+    : ownBaseUrl
+      ? gatewayUrlFor(provider, ownBaseUrl)
+      : getGatewayBaseURL(provider);
   if (baseURL) {
-    const source = opts?.baseUrl ? "caller" : "LLM_GATEWAY";
+    const source = opts?.baseUrl ? "caller" : ownBaseUrl ? BASE_URL_ENV[provider] : "LLM_GATEWAY";
     console.log(`[${source}] routing ${provider} via ${baseURL}`);
   }
   // The key came from env, so its companion settings do too (KEY_HEADER_ENV).
@@ -781,6 +931,19 @@ export function getModel(
       });
       return xai(modelId);
     }
+    case "maple": {
+      // Chat Completions (`.chat`): the proxy has no Responses API, which is
+      // what `createOpenAI()(id)` calls. The model's provider stays
+      // "openai.chat", so a host that treats chat-completions models alike
+      // (strut moves tool-result images beside the results) does the same here.
+      const maple = createOpenAI({
+        apiKey,
+        baseURL,
+        ...(extraHeaders && { headers: extraHeaders }),
+        fetch: mapleFetch(timeoutFetch),
+      });
+      return maple.chat(modelId);
+    }
     // case "claude_code":
     //   try {
     //     const customProvider = createClaudeCode({
@@ -879,6 +1042,8 @@ const DEFAULT_CONTEXT_LIMITS: Record<Provider, number> = {
   openai: 400_000,
   openrouter: 256_000,
   xai: 256_000,
+  // An unlisted Maple model: its smallest window.
+  maple: 131_072,
 };
 
 // Conservative fallback if both model and provider lookups miss
@@ -888,6 +1053,7 @@ const FALLBACK_CONTEXT_LIMIT = 128_000;
  * Get the context window size (max input tokens) for a given model.
  */
 export function getContextLimit(modelId: string, provider: Provider): number {
+  if (provider === "maple") return MAPLE_MODELS[modelId]?.context ?? DEFAULT_CONTEXT_LIMITS.maple;
   return MODEL_CONTEXT_LIMITS[modelId] ?? DEFAULT_CONTEXT_LIMITS[provider] ?? FALLBACK_CONTEXT_LIMIT;
 }
 
@@ -918,6 +1084,12 @@ const TOKEN_PRICING: Record<Provider, TokenPricing> = {
     inputTokenPrice: 3.0,
     outputTokenPrice: 15.0,
     cacheReadPrice: 0.75,
+  },
+  // An unlisted Maple model (MAPLE_MODELS has the listed ones): the dearest
+  // listed rate (kimi-k3), so a cost is never under-reported.
+  maple: {
+    inputTokenPrice: 8.0,
+    outputTokenPrice: 25.0,
   },
 };
 
@@ -1080,6 +1252,18 @@ export function getProviderOptions(
       return {
         xai: {},
       };
+    case "maple": {
+      // The chat-completions client reads its options under `openai`. Fast
+      // is no thinking where the model allows it (gpt-oss and GLM think
+      // always: their lowest effort), thinking is high; otherwise the
+      // model's default (gemma4: none).
+      if (!thinkingSpeed) return { openai: {} satisfies OpenAIResponsesProviderOptions };
+      const name = modelName?.startsWith("maple/") ? modelName.slice("maple/".length) : modelName;
+      const modelId = !name || name === "maple" ? DEFAULT_MODELS.maple : name;
+      return {
+        openai: { reasoningEffort: mapleReasoningEffort(modelId, fast ? "none" : "high") },
+      };
+    }
     default:
       throw new Error(`Unsupported provider: ${provider}`);
   }
