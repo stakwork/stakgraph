@@ -24,8 +24,9 @@
 // locks, no I/O, no allocation.
 //
 // Precedence is decided by the caller (internal/auth.PriceCall):
-// provider-computed cost → operator model_pricing config → this
-// catalog → $0 with a loud log. The config layer stays as the
+// provider-computed cost → operator model_pricing config → the
+// runtime table (PUT /_plugin/pricing) → this catalog → $0 with a
+// loud log. The config layer stays as the
 // operator override and the air-gapped fallback.
 package pricing
 

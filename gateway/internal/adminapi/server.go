@@ -190,7 +190,8 @@ func methodMuxedAuth(
 // ----------
 //   - `/_plugin/health`, `/_plugin/login`: anonymous.
 //   - `/_plugin/admin-credentials`, `/_plugin/trust/*` mutations,
-//     `/_plugin/revoke/nonce/*`, `/_plugin/tlog/sth`: bearer only
+//     `/_plugin/revoke/nonce/*`, `/_plugin/tlog/sth`,
+//     `/_plugin/pricing`: bearer only
 //     (Hive's machine-to-plugin path; cookies are not honoured).
 //   - Everything else (observability, kill/state, user revocation
 //     under `/_plugin/revoke/user/*` + `/_plugin/revoke/users`,
@@ -433,6 +434,11 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 	// subtree patterns both route through one dispatcher.
 	mux.HandleFunc("/_plugin/evals", cookieOrBearer(evals.dispatch))
 	mux.HandleFunc("/_plugin/evals/", cookieOrBearer(evals.dispatch))
+
+	// Runtime price table: rows for models neither model_pricing nor
+	// the datasheet prices (custom providers). Bearer-only for both
+	// methods: the host that owns the model catalog pushes it whole.
+	mux.HandleFunc(pricingPath, bearer(pricingHandler))
 
 	// Hive callback config push: Hive sends its base URL + a
 	// workspace-scoped API key during agent-catalog reconciliation.

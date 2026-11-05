@@ -121,6 +121,13 @@ const (
 	// next to trust.json on the data volume.
 	PricingCache = "BIFROST_PLUGIN_PRICING_CACHE"
 
+	// PricingPath is the on-disk location of the runtime price table
+	// PUT /_plugin/pricing writes: rows for models neither the config
+	// block's model_pricing nor the datasheet knows (custom providers
+	// such as Maple or Numes). Loaded at boot, so the rows survive a
+	// restart. Defaults next to trust.json on the data volume.
+	PricingPath = "BIFROST_PLUGIN_PRICING_PATH"
+
 	// TlogPath is the JSONL file the phase-12 transparency log appends
 	// one canonical leaf per accounted LLM call to. Defaults to
 	// /app/data/tlog/leaves.jsonl on the same named volume as trust.json
@@ -185,6 +192,10 @@ const (
 	// DefaultPricingCache sits on the same data volume as trust.json
 	// and logs.db.
 	DefaultPricingCache = "/app/data/pricing-datasheet.json"
+
+	// DefaultPricingPath sits beside the datasheet cache on the data
+	// volume.
+	DefaultPricingPath = "/app/data/pricing.json"
 
 	// DefaultTlogPath sits next to trust.json on the data volume, in
 	// its own directory so a future per-day rotation has somewhere to
@@ -262,6 +273,10 @@ func PricingURLValue() string {
 // PricingCachePath returns the persisted-datasheet path, falling
 // back to DefaultPricingCache.
 func PricingCachePath() string { return GetOr(PricingCache, DefaultPricingCache) }
+
+// PricingPathValue returns the runtime price table's path, falling
+// back to DefaultPricingPath.
+func PricingPathValue() string { return GetOr(PricingPath, DefaultPricingPath) }
 
 // TlogPathValue returns the transparency-log leaf file path, falling
 // back to DefaultTlogPath.

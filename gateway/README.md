@@ -147,6 +147,8 @@ Routes today:
 | GET    | `/_plugin/runs/:run_id/calls/:call_id`     | cookie or bearer    | Single call body — full input_history / output_message / params / tools / error_details / raw_response.    |
 | GET/POST/DELETE | `/_plugin/trust/*`                | bearer              | Phase-5 trust registry CRUD.                                                                               |
 | GET    | `/_plugin/tlog/sth?since=N`                | bearer              | Phase-12 transparency log: signed tree head, consistency proof from N, up to 5000 leaves from N. Hive's witness pull; 409 when N is ahead of the tree. |
+| GET    | `/_plugin/pricing`                         | bearer              | The runtime price table: `{"<provider>/<model>": {input_per_mtok, output_per_mtok, cache_read_per_mtok?, cache_write_per_mtok?, cache_write_1h_per_mtok?}, …}` (`{}` when empty). |
+| PUT    | `/_plugin/pricing`                         | bearer              | Replaces the runtime price table whole (`{}` clears it), for models bifrost's datasheet lacks, such as custom providers. Kept in `/app/data/pricing.json` (`BIFROST_PLUGIN_PRICING_PATH`), so it survives restarts. A call is priced from the config's `model_pricing`, then this table, then the datasheet, else `$0` with a log line. A row of zeros marks a free model. 400 on a negative rate or a blank key. |
 
 ### Admin UI (`/_plugin/ui/`)
 
@@ -255,6 +257,45 @@ You should see lines like:
 [stakgraph-gateway] 2026-... PostLLMHook run_id=r_test_001 had_resp=true had_err=false prompt_tokens=12 completion_tokens=8 total_tokens=20 elapsed_ms=812
 [stakgraph-gateway] 2026-... HTTPTransportPostHook path=/v1/chat/completions status=200 body_bytes=441 run_id=r_test_001 elapsed_ms=813
 ```
+
+### Custom providers, end to end
+
+`scripts/custom-provider-e2e.ts` runs the image against a fake
+OpenAI-compatible upstream, with no real provider keys. It adds custom
+providers through bifrost's admin API, calls them as `maple/<model>` on
+`/openai/v1/chat/completions`, plain and streaming, and prices them through
+`PUT /_plugin/pricing` until a run's cap answers 402. Then it restarts the
+container and checks what survived.
+
+```bash
+make docker-build
+cd auth/ts && npm install && node --import tsx ../../scripts/custom-provider-e2e.ts
+```
+
+What it shows, on bifrost `transports/v2.2.2`:
+
+- **A custom provider takes two calls.** First `POST /api/providers` with
+  `network_config` (`base_url`, plus `allow_private_network` for an address
+  like `maple:8080`) and `custom_provider_config.base_provider_type: "openai"`.
+  Then `POST /api/providers/{name}/keys`. The first call has no `keys` field,
+  so keys sent with it are dropped without an error, and calls fail with
+  `no_key_supports_model`.
+- **`model: "maple/gemma4-31b"` routes to the provider named `maple`.** The
+  upstream gets `gemma4-31b`, with the key as its Bearer. The plugin sees
+  `provider="maple" model="gemma4-31b"`, which a `maple/gemma4-31b` row
+  prices.
+- **Streams report usage.** Bifrost asks the upstream for
+  `stream_options.include_usage`, passes the usage to the client, and the
+  plugin accounts it.
+- **Most upstreams need no stream flag.** One that ends with `data: [DONE]`,
+  or closes the connection, needs neither flag. One that skips `[DONE]` and
+  keeps the connection open needs both `does_not_send_done_marker` and
+  `wait_for_usage`. Without them, each answer waits for the stream idle
+  timeout (60 s by default). With `does_not_send_done_marker` alone, the usage
+  is dropped and the call counts $0.
+- **Everything survives a restart with the baked `config.json`:** the price
+  table, the custom providers with their keys and flags, and a key that
+  replaced a built-in provider's `env.*` slot.
 
 ## Local plugin build (without docker)
 
