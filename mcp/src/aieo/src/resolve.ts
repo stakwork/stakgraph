@@ -14,12 +14,13 @@
 //   openrouter/openrouter/auto        openrouter  openrouter/auto
 //   openai/gpt-5                      openai      gpt-5                 (direct, NOT via OpenRouter)
 //   openrouter/openai/gpt-5           openrouter  openai/gpt-5
+//   numes/z-ai/glm-5.3                numes       z-ai/glm-5.3
 //   moonshotai/kimi-k2.6              rejected — no provider prefix (see canonicalModelName)
 //
 // The canonical form is "<provider>/<modelId>": two segments for direct
-// providers, three for OpenRouter. It round-trips through getModel, and it
-// is unaffected by gateway config (Bifrost's wire prefixes are added inside
-// getModel and never surface).
+// providers, three for OpenRouter and Numes. It round-trips through
+// getModel, and it is unaffected by gateway config (Bifrost's wire prefixes
+// are added inside getModel and never surface).
 
 import type { LanguageModel } from "ai";
 import {
@@ -29,6 +30,7 @@ import {
   DEFAULT_MODELS,
   MAPLE_MODELS,
   MODELS,
+  NUMES_MODELS,
   PROVIDERS,
   getContextLimit,
   getModel,
@@ -132,7 +134,8 @@ export function canonicalModelName(model?: string, provider?: Provider | string)
     const head = model.split("/")[0];
     throw new Error(
       `Model "${model}" has no provider prefix: "${head}" is not a provider (${PROVIDERS.join(", ")}). ` +
-        `For an OpenRouter-hosted model write "openrouter/${model}"; otherwise pass the provider explicitly.`,
+        `For an OpenRouter-hosted model write "openrouter/${model}", for one on Numes "numes/${model}"; ` +
+        `otherwise pass the provider explicitly.`,
     );
   }
   // A Maple id names no provider by itself (gemma4-31b is served elsewhere
@@ -181,6 +184,10 @@ export function maxOutputTokensFor(
   // Maple's backends refuse prompt + max_tokens past the window, so each
   // model has its own cap (MAPLE_MODELS); an unlisted one the smallest.
   if (provider === "maple") return (modelId && MAPLE_MODELS[modelId]?.maxOutput) || 12_288;
+  // Numes refuses the same (prompt + max_tokens past the window), and a
+  // max_tokens past the model's own limit. An unlisted model: under a tenth
+  // of its catalogue's common 131k window.
+  if (provider === "numes") return (modelId && NUMES_MODELS[modelId]?.maxOutput) || 12_288;
   return 64_000;
 }
 
@@ -208,8 +215,8 @@ export interface ResolveOptions {
   /**
    * Async key source consulted by env-var NAME ("OPENAI_API_KEY", …) before
    * process.env — a host's own secret store. Only called when `apiKey` is
-   * absent, and for a provider's own endpoint (BASE_URL_ENV: MAPLE_BASE_URL)
-   * when `baseUrl` is.
+   * absent, and for a provider's own endpoint (BASE_URL_ENV: MAPLE_BASE_URL,
+   * NUMES_BASE_URL) when `baseUrl` is.
    */
   getSecret?: (envName: string) => Promise<string | undefined>;
   baseUrl?: string;
@@ -232,7 +239,7 @@ export interface ResolvedModel extends ModelRef {
  * → process.env; none → an error that names the env var. A looked-up key's
  * KEY_HEADER_ENV settings (Anthropic's workspace) are looked up the same way
  * and sent as headers, and so is a BASE_URL_ENV endpoint (Maple's proxy,
- * MAPLE_BASE_URL) unless the caller passed `baseUrl`.
+ * MAPLE_BASE_URL; Numes, NUMES_BASE_URL) unless the caller passed `baseUrl`.
  */
 export async function resolveModel(opts: ResolveOptions = {}): Promise<ResolvedModel> {
   const ref = canonicalModelName(opts.model, opts.provider);
@@ -255,7 +262,7 @@ export async function resolveModel(opts: ResolveOptions = {}): Promise<ResolvedM
     const fromKey = keyHeaders(ref.provider, (name) => found[name]);
     if (fromKey) headers = { ...fromKey, ...opts.headers };
   }
-  // A provider whose endpoint is the deployment's own (Maple's proxy): its
+  // A provider with an endpoint of its own (Maple's proxy, Numes' API): its
   // URL where its key would be (getSecret → env), else the default. A
   // caller's baseUrl wins.
   const baseUrlEnv = BASE_URL_ENV[ref.provider];

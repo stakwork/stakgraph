@@ -18,6 +18,8 @@ for (const k of [
   "XAI_API_KEY",
   "MAPLE_API_KEY",
   "MAPLE_BASE_URL",
+  "NUMES_API_KEY",
+  "NUMES_BASE_URL",
 ]) {
   delete process.env[k];
 }
@@ -79,7 +81,7 @@ async function test(label: string, fn: () => unknown | Promise<unknown>) {
 
 await test("listModels: one entry per alias, PROVIDERS order, defaults flagged", () => {
   const all = listModels();
-  eq(all.map((m) => m.alias), ["sonnet", "opus", "haiku", "gemini", "gpt", "kimi", "glm", "grok", "maple"], "aliases");
+  eq(all.map((m) => m.alias), ["sonnet", "opus", "haiku", "gemini", "gpt", "kimi", "glm", "grok", "maple", "numes"], "aliases");
   eq(all.filter((m) => m.default).map((m) => m.provider), PROVIDERS, "exactly one default per provider");
   const sonnet = all.find((m) => m.alias === "sonnet")!;
   eq([sonnet.provider, sonnet.modelId, sonnet.default], ["anthropic", "claude-sonnet-5-5", true], "sonnet");
@@ -92,6 +94,7 @@ await test("listModels: one entry per alias, PROVIDERS order, defaults flagged",
   eq(all.find((m) => m.alias === "glm")!.modelId, "~z-ai/glm-flash-latest", "glm");
   eq(all.find((m) => m.alias === "glm")!.default, false, "kimi stays the openrouter default");
   eq(all.find((m) => m.alias === "maple")!.modelId, "gemma4-31b", "maple");
+  eq(all.find((m) => m.alias === "numes")!.modelId, "z-ai/glm-5.3", "numes");
 });
 
 await test("API_KEY_ENV covers every provider", () => {
@@ -153,6 +156,11 @@ const canonCases: [string | undefined, string | undefined, [string, string, stri
   ["maple", undefined, ["maple", "gemma4-31b", "maple/gemma4-31b"]],                              // the provider's own alias
   [undefined, "maple", ["maple", "gemma4-31b", "maple/gemma4-31b"]],
   ["kimi-k3", "maple", ["maple", "kimi-k3", "maple/kimi-k3"]],                                     // explicit provider
+  ["numes/z-ai/glm-5.3", undefined, ["numes", "z-ai/glm-5.3", "numes/z-ai/glm-5.3"]],             // three segments, as OpenRouter
+  ["numes/anthropic/claude-fable-5", undefined, ["numes", "anthropic/claude-fable-5", "numes/anthropic/claude-fable-5"]],
+  ["numes", undefined, ["numes", "z-ai/glm-5.3", "numes/z-ai/glm-5.3"]],                          // the provider's own alias
+  [undefined, "numes", ["numes", "z-ai/glm-5.3", "numes/z-ai/glm-5.3"]],
+  ["nvidia/nemotron-3-ultra-550b-a55b", "numes", ["numes", "nvidia/nemotron-3-ultra-550b-a55b", "numes/nvidia/nemotron-3-ultra-550b-a55b"]],
 ];
 for (const [model, provider, [p, id, name]] of canonCases) {
   await test(`canonicalModelName(${JSON.stringify(model)}, ${JSON.stringify(provider)}) → ${name}`, () => {
@@ -173,6 +181,9 @@ await test("canonicalModelName: the OpenRouter no-prefix trap throws with the fi
     'write "openrouter/moonshotai/kimi-k2.6"',
     "trap",
   ));
+
+await test("canonicalModelName: the no-prefix trap names Numes' form too", () =>
+  throwsWith(() => canonicalModelName("z-ai/glm-5.3"), 'on Numes "numes/z-ai/glm-5.3"', "trap"));
 
 await test("canonicalModelName: trap also catches org-prefixed grok", () =>
   throwsWith(() => canonicalModelName("x-ai/grok-4"), '"x-ai" is not a provider', "trap"));
@@ -249,6 +260,12 @@ await test("maxOutputTokensFor: Maple's per model, under a tenth of the window",
   eq(maxOutputTokensFor("maple", "gpt-oss-120b"), 12_288, "gpt-oss-120b");
   eq(maxOutputTokensFor("maple", "deepseek-v4-1-flash"), 64_000, "deepseek-v4-1-flash");
   eq(maxOutputTokensFor("maple", "something-new"), 12_288, "unlisted");
+});
+
+await test("maxOutputTokensFor: Numes' per model, under a tenth of the window and the model's limit", () => {
+  eq(maxOutputTokensFor("numes", "z-ai/glm-5.3"), 24_576, "glm-5.3 (262k window)");
+  eq(maxOutputTokensFor("numes", "z-ai/glm-5.3-flash"), 64_000, "glm-5.3-flash (1M window, 65,536 limit)");
+  eq(maxOutputTokensFor("numes", "anthropic/claude-fable-5"), 12_288, "unlisted");
 });
 
 // ── resolveModel ─────────────────────────────────────────────────────────
@@ -458,6 +475,94 @@ await test("maple: no MAPLE_BASE_URL anywhere → the proxy on localhost:8080", 
     globalThis.fetch = realFetch;
   }
   eq(urls, ["http://localhost:8080/v1/chat/completions"], "default url");
+});
+
+// ── numes ────────────────────────────────────────────────────────────────
+
+await test("resolveModel: numes is a chat-completions model with its window and cap", async () => {
+  const r = await resolveModel({ model: "numes/z-ai/glm-5.3", apiKey: "k" });
+  const m = r.model as { modelId?: string; provider?: string };
+  eq([m.provider, m.modelId], ["openai.chat", "z-ai/glm-5.3"], "SDK model");
+  eq([r.contextLimit, r.maxOutputTokens], [262_144, 24_576], "limits");
+  eq((await resolveModel({ model: "numes/z-ai/glm-5.3-flash", apiKey: "k" })).contextLimit, 1_048_576, "flash");
+  eq((await resolveModel({ model: "numes/anthropic/claude-fable-5", apiKey: "k" })).contextLimit, 131_072, "unlisted");
+});
+
+await test("getProviderOptions(numes): fast is none, thinking is high, else the model's default", () => {
+  eq(getProviderOptions("numes", "fast", "numes/z-ai/glm-5.3"), { openai: { reasoningEffort: "none" } }, "fast");
+  eq(getProviderOptions("numes", "thinking", "numes"), { openai: { reasoningEffort: "high" } }, "thinking");
+  eq(getProviderOptions("numes", undefined, "numes/z-ai/glm-5.3"), { openai: {} }, "the model's default");
+});
+
+await test("computeSessionCost(numes): the free models cost nothing, an unlisted one the dearest rate", () => {
+  const usage = { input: 600_000, cache_read: 400_000, cache_write: 0, output: 1_000_000 };
+  eq(computeSessionCost("numes", usage, "z-ai/glm-5.3"), 0, "glm-5.3");
+  eq(computeSessionCost("numes", usage, "nvidia/nemotron-3-ultra-550b-a55b"), 0, "nemotron ultra");
+  eq(computeSessionCost("numes", usage, "someone/something-new").toFixed(2), "73.64", "unlisted: 1M in at 12.28, 1M out at 61.36");
+});
+
+await test("numes on the wire: NUMES_BASE_URL via getSecret, /api/v1/chat/completions, the effort as asked", async () => {
+  const seen: { path?: string; auth?: string; effort?: unknown; model?: unknown }[] = [];
+  const server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const json = JSON.parse(body);
+      seen.push({ path: req.url, auth: req.headers.authorization, effort: json.reasoning_effort, model: json.model });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({
+        id: "x", object: "chat.completion", created: 0, model: json.model,
+        choices: [{ index: 0, message: { role: "assistant", content: "pong" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 17, completion_tokens: 3, cost: 0, prompt_tokens_details: { cached_tokens: 0 } },
+      }));
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const root = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const store = (entries: Record<string, string>) => async (name: string) => entries[name];
+  try {
+    const asked: string[] = [];
+    const glm = await resolveModel({
+      model: "numes/z-ai/glm-5.3",
+      getSecret: async (name) => (asked.push(name), ({ NUMES_API_KEY: "nk", NUMES_BASE_URL: `${root}/api/v1` } as Record<string, string>)[name]),
+    });
+    eq(asked, ["NUMES_API_KEY", "NUMES_BASE_URL"], "asked by name");
+    const r = await generateText({ model: glm.model, prompt: "hi", reasoning: "medium", maxRetries: 0 } as any);
+    eq(r.text, "pong", "text");
+    eq([r.usage.inputTokens, r.usage.outputTokens], [17, 3], "usage");
+    // providerOptions, and a caller's baseUrl (a bare root gets /api/v1) wins over NUMES_BASE_URL
+    const flash = await resolveModel({ model: "numes/z-ai/glm-5.3-flash", baseUrl: root, getSecret: store({ NUMES_API_KEY: "nk", NUMES_BASE_URL: "http://127.0.0.1:1/api/v1" }) });
+    await generateText({ model: flash.model, prompt: "hi", providerOptions: getProviderOptions("numes", "fast") as any, maxRetries: 0 } as any);
+    // the env-only path (getModel)
+    process.env.NUMES_API_KEY = "env-key";
+    process.env.NUMES_BASE_URL = `${root}/api/v1`;
+    await generateText({ model: getModel("numes", { modelName: "numes/nvidia/nemotron-3-ultra-550b-a55b" }), prompt: "hi", maxRetries: 0 });
+    eq(seen, [
+      { path: "/api/v1/chat/completions", auth: "Bearer nk", effort: "medium", model: "z-ai/glm-5.3" },
+      { path: "/api/v1/chat/completions", auth: "Bearer nk", effort: "none", model: "z-ai/glm-5.3-flash" },
+      { path: "/api/v1/chat/completions", auth: "Bearer env-key", model: "nvidia/nemotron-3-ultra-550b-a55b" },
+    ], "requests");
+  } finally {
+    server.close();
+    delete process.env.NUMES_API_KEY;
+    delete process.env.NUMES_BASE_URL;
+  }
+});
+
+await test("numes: no NUMES_BASE_URL anywhere → api.numes.ai", async () => {
+  const urls: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: any) => {
+    urls.push(typeof input === "string" ? input : input.url);
+    throw new Error("recorded");
+  }) as typeof fetch;
+  try {
+    const r = await resolveModel({ model: "numes/z-ai/glm-5.3", apiKey: "k", getSecret: async () => undefined });
+    await throwsWith(() => generateText({ model: r.model, prompt: "hi", maxRetries: 0 }), "recorded", "request");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  eq(urls, ["https://api.numes.ai/api/v1/chat/completions"], "default url");
 });
 
 // ── KEY_HEADER_ENV: an organization-wide Anthropic key names its workspace ──
