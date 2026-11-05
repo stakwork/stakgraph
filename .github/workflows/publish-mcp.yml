@@ -10,6 +10,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout code
@@ -24,6 +26,14 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest
+        with:
+          images: ghcr.io/stakwork/stakgraph-mcp
 
       - name: Build and push Docker image (amd64)
         uses: docker/build-push-action@v5
@@ -36,12 +46,16 @@ jobs:
           cache-to: type=registry,ref=ghcr.io/stakwork/stakgraph-mcp:buildcache-amd64,mode=max
           provenance: false
           sbom: false
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
 
   build-arm64:
     runs-on: ubuntu-arm64
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout code
@@ -57,6 +71,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest
+        with:
+          images: ghcr.io/stakwork/stakgraph-mcp
+
       - name: Build and push Docker image (arm64)
         uses: docker/build-push-action@v5
         with:
@@ -68,6 +90,8 @@ jobs:
           cache-to: type=registry,ref=ghcr.io/stakwork/stakgraph-mcp:buildcache-arm64,mode=max
           provenance: false
           sbom: false
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
 
   merge:
     runs-on: ubuntu-latest
@@ -75,6 +99,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Log in to GitHub Container Registry
@@ -85,9 +111,25 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create and push multi-arch manifest
+        id: manifest
         run: |
           docker buildx imagetools create \
+            --annotation "index:org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --annotation "index:org.opencontainers.image.revision=${{ github.sha }}" \
             -t ghcr.io/stakwork/stakgraph-mcp:${{ github.ref_name }} \
             -t ghcr.io/stakwork/stakgraph-mcp:latest \
             ghcr.io/stakwork/stakgraph-mcp:${{ github.ref_name }}-amd64 \
             ghcr.io/stakwork/stakgraph-mcp:${{ github.ref_name }}-arm64
+
+      - name: Resolve manifest digest
+        id: digest
+        run: |
+          echo "digest=$(docker buildx imagetools inspect ghcr.io/stakwork/stakgraph-mcp:${{ github.ref_name }} --format '{{.Manifest.Digest}}')" >> "$GITHUB_OUTPUT"
+
+      # Verify with: gh attestation verify oci://ghcr.io/stakwork/stakgraph-mcp@sha256:<digest> --owner stakwork
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/stakwork/stakgraph-mcp
+          subject-digest: ${{ steps.digest.outputs.digest }}
+          push-to-registry: true
