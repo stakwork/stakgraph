@@ -110,6 +110,7 @@ describe("labAuth", () => {
   let port: number;
   let prevToken: string | undefined;
   let prevStrutKey: string | undefined;
+  let prevSecretKey: string | undefined;
   let strut: Strut;
   let strutDir: string;
 
@@ -119,6 +120,10 @@ describe("labAuth", () => {
     // The lab strut runs open behind labAuth: no key of its own.
     prevStrutKey = process.env.STRUT_API_KEY;
     delete process.env.STRUT_API_KEY;
+    // ...but it signs its tokens (file tokens, channel tickets) under
+    // STRUT_SECRET_KEY, which index.ts derives from API_TOKEN.
+    prevSecretKey = process.env.STRUT_SECRET_KEY;
+    process.env.STRUT_SECRET_KEY = API_TOKEN;
     const app = express();
     app.use("/lab", labAuth, (req, res) => {
       // What strut's `resolveActor` / `resolveScope` see: the Hono bridge
@@ -173,6 +178,8 @@ describe("labAuth", () => {
     if (prevToken === undefined) delete process.env.API_TOKEN;
     else process.env.API_TOKEN = prevToken;
     if (prevStrutKey !== undefined) process.env.STRUT_API_KEY = prevStrutKey;
+    if (prevSecretKey === undefined) delete process.env.STRUT_SECRET_KEY;
+    else process.env.STRUT_SECRET_KEY = prevSecretKey;
     await new Promise((r) => server.close(r));
     await strut.close();
     await rm(strutDir, { recursive: true, force: true });
@@ -518,7 +525,7 @@ describe("labAuth", () => {
     }
   });
 
-  it("channels: /lab/channels — a ticket minted through the lab is the credential; neither, or a forged one, is a 401; a credential plus ?app= works", async () => {
+  it("channels: /lab/channels — a ticket minted through the lab is the credential; neither, or a forged one, is a 401; a person's credential plus ?app= works, a strut's is refused", async () => {
     const sockets = http.createServer();
     sockets.on("upgrade", (req, socket, head) => upgradeLabChannel(req, socket, head, async () => strut));
     await new Promise<void>((r) => sockets.listen(0, r));
@@ -551,13 +558,29 @@ describe("labAuth", () => {
       // 2. Neither a credential nor a ticket (nor an empty one).
       assert.equal((await openRoom(sp, {}, "/lab/channels")).status, 401);
       assert.equal((await openRoom(sp, {}, "/lab/channels?ticket=")).status, 401);
-      // 3. A forged ticket is strut's 401.
+      // 3. A forged ticket is strut's 401: one well formed but unsigned,
+      // naming someone else (what a strut with no secret would take), and
+      // one that is not a ticket at all.
+      const claims = Buffer.from(JSON.stringify({ actor: "mallory", app: "board", version, exp: Date.now() + 60_000 })).toString("base64url");
+      assert.equal((await openRoom(sp, {}, `/lab/channels?ticket=${encodeURIComponent(`strut-channel.${claims}.`)}`)).status, 401);
       assert.equal((await openRoom(sp, {}, "/lab/channels?ticket=forged.ticket")).status, 401);
-      // 4. A person's credential plus ?app=<name>@<version>.
-      const person = `Bearer ${signApiToken("60d", "octocat-42", "lab:peer")}`;
+      // 4. A person's credential plus ?app=<name>@<version>: in, as the
+      // token's `sub` (the peer relay's shape).
+      const person = `Bearer ${signApiToken("60d", "hubot-7", "lab:peer")}`;
       const viaCred = await openRoom(sp, { authorization: person }, `/lab/channels?app=board@${version}`);
       assert.equal(viaCred.status, 101);
-      viaCred.close();
+      try {
+        viaCred.send({ op: "join", channel: "relay" });
+        const joined = await viaCred.until((m) => m.op === "joined");
+        assert.deepEqual((joined.members as Array<{ actor?: string }>).map((m) => m.actor), ["hubot-7"]);
+      } finally {
+        viaCred.close();
+      }
+      // 5. A strut's peer token (no `sub`) names its person by header: strut
+      // refuses it a channel.
+      const strutPeer = `Bearer ${signApiToken("60d", undefined, "lab:peer")}`;
+      const refused = await openRoom(sp, { authorization: strutPeer, "x-strut-actor": "octocat-42" }, `/lab/channels?app=board@${version}`);
+      assert.equal(refused.status, 403);
     } finally {
       await new Promise((r) => sockets.close(r));
     }

@@ -692,21 +692,24 @@ relevant with what the answer rests on. Locally it is an ordinary workflow
   join their ROOM: `/lab/rooms`, the WebSocket `attachLabSockets` routes
   through `upgradeLabRoom` (the lab credential stashed as for HTTP, then
   strut's `upgrade` with `basePath: "/lab"`), where a launch's `callback` /
-  `jobCallback` `{ room: true }` delivers. `/lab/channels`
-  (`upgradeLabChannel`, an app's channels — strut `plans/app-channels.md`)
-  is the other socket: a browser host opens it straight to the swarm with
-  `?ticket=` (minted through `POST /lab/apps/:name/channel-ticket`) and NO
-  lab credential — the ticket is the credential, strut verifies it and
-  401s a bad or expired one. With a lab credential it is stashed as for the
-  room (a person's `lab:peer` token plus `?app=<name>@<version>`, the peer
-  relay's shape). Neither a credential nor a ticket: 401 here, so no
-  unauthenticated socket passes without a ticket. The ticket is never
-  logged (`redactTicket`; strut's own logger redacts `?ticket=` too). A token without a `sub` stands
+  `jobCallback` `{ room: true }` delivers. A token without a `sub` stands
   for a strut: `peer`, refused a `peer: person` workflow and a room. Outside
   `/lab` it opens nothing — mcp's own API verifies `api` JWTs only. What a
   peer may launch is the workflow's `peer:` (strut's peer gate,
   2026-10-20): `explore` and `logs` say `peer: true`, the orchestrator
   `peer: person`, and `job` neither.
+- `/lab/channels` (`upgradeLabChannel`, an app's channels — strut
+  `plans/app-channels.md`) is the lab's other socket. A browser host opens
+  it straight to the swarm with `?ticket=` (minted through `POST
+  /lab/apps/:name/channel-ticket`) and NO lab credential: the ticket is the
+  credential, signed under the `STRUT_SECRET_KEY` index.ts derives from
+  `API_TOKEN`, and strut 401s a forged or expired one. With a lab
+  credential it is stashed as for the room: a person's `lab:peer` token
+  plus `?app=<name>@<version>` (the peer relay's shape) joins as the
+  token's `sub`, and strut refuses a strut's token (no `sub`) with 403.
+  Neither a credential nor a ticket: 401 here, so no unauthenticated
+  socket passes without a ticket. The ticket is never logged
+  (`redactTicket`; strut's own logger redacts `?ticket=` too).
 - `params` are the evolvable surface: `model` (`sonnet`), `maxSteps` (40),
   `tools`, `builtins`, `system`. Tests (`explore/seed.test.ts`, offline — a
   fake `agent` and a fake `git/checkout`, the real registry for `job/dir`,

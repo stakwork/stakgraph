@@ -362,7 +362,9 @@ const rejectUpgrade = (socket: Duplex, status: string) => {
 export const redactTicket = (v: unknown): unknown => {
   const scrub = (t: string) => t.replace(/ticket=[^&\s]*/g, "ticket=[redacted]");
   if (typeof v === "string") return scrub(v);
-  if (v instanceof Error) return `${v.name}: ${scrub(v.message)}`;
+  // The stack keeps where it failed (a lab boot with Neo4j down); it starts
+  // with the message, so it is scrubbed too.
+  if (v instanceof Error) return scrub(v.stack ?? `${v.name}: ${v.message}`);
   return v;
 };
 
@@ -478,7 +480,7 @@ export function attachLabSockets(server: Server): void {
         h.handle(req, socket, head);
       })
       .catch((e) => {
-        console.error("[lab] dictation upgrade failed:", redactTicket(e));
+        console.error("[lab] dictation upgrade failed:", e);
         reject(socket, "500 Internal Server Error");
       });
   });
