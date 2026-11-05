@@ -1,6 +1,6 @@
 import { generateText, tool, hasToolCall, ModelMessage, ToolSet, StepResult } from "ai";
-import { getProviderOptions, resolveLLMConfig } from "../../aieo/src/provider.js";
-import { addUsage, normalizeUsage } from "../../aieo/src/usage.js";
+import { getProviderOptions, resolveLLMConfig } from "aieo";
+import { addUsage, normalizeUsage } from "aieo";
 import {
   EXPLORER,
   RE_EXPLORER,

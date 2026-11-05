@@ -3,9 +3,9 @@ import * as dotenv from "dotenv";
 import { generateObject } from "ai";
 import { getOrCreateStagehand } from "../tools/stagehand/core.js";
 import { Step, TestResult } from "./types.js";
-import { getModel, getProviderOptions } from "../aieo/src/provider.js";
-import type { AiUsageWithLegacy } from "../aieo/src/usage.js";
-import { normalizeUsage } from "../aieo/src/usage.js";
+import { getModel, getProviderOptions } from "aieo";
+import type { AiUsageWithLegacy } from "aieo";
+import { normalizeUsage } from "aieo";
 import { env } from "../env.js";
 
 // Load environment variables

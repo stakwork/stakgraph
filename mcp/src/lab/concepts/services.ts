@@ -2,7 +2,7 @@ import { Octokit } from "@octokit/rest";
 import { Storage, GraphStorage } from "./store/index.js";
 import { LLMClient } from "./llm.js";
 import { Summarizer } from "./summarizer.js";
-import { getApiKeyForProvider, type Provider } from "../../aieo/src/provider.js";
+import { getApiKeyForProvider, type Provider } from "aieo";
 import type { Concept, Usage } from "./types.js";
 import type { GraphBackend } from "strut";
 import { env } from "../../env.js";

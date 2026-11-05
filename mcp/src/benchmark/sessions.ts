@@ -20,8 +20,8 @@ import {
   getProviderForModel,
   computeSessionCost,
   type Provider,
-} from "../aieo/src/provider.js";
-import { addUsage, emptyUsage, normalizeUsage } from "../aieo/src/usage.js";
+} from "aieo";
+import { addUsage, emptyUsage, normalizeUsage } from "aieo";
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
 

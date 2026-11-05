@@ -1,4 +1,4 @@
-import { addUsage, emptyUsage, withLegacyUsage } from "../../aieo/src/index.js";
+import { addUsage, emptyUsage, withLegacyUsage } from "aieo";
 import { ask_question } from "./ask.js";
 import type { Answer } from "./ask.js";
 import { decomposeAndAsk, QUESTIONS } from "./questions.js";

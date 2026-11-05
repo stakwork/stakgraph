@@ -1,6 +1,6 @@
 /**
  * Dollar cost of an LLM call at aieo's rates. aieo owns the pricing table
- * (`computeSessionCost` / `getTokenPricing` in `aieo/src/provider.ts`); strut
+ * (`computeSessionCost` / `getTokenPricing` in aieo's `provider.ts`, now in strut's `src/aieo/`); strut
  * only normalizes the AI SDK's usage object (`usageFromResult` →
  * `{ inputTokens, cacheReadTokens, cacheWriteTokens, outputTokens }`). This is
  * the shape adapter between the two, so the lab steps carry no price table
@@ -14,7 +14,7 @@
  * workspace, outside mcp's source tree), so those inline the same two-liner
  * over strut's `usageForCost` + aieo's `computeSessionCost` instead.
  */
-import { computeSessionCost, PROVIDERS, type Provider } from "../aieo/src/provider.js";
+import { computeSessionCost, PROVIDERS, type Provider } from "aieo";
 import type { TokenUsage } from "strut";
 
 export function costOf(provider: string, usage: TokenUsage, modelId?: string): number {

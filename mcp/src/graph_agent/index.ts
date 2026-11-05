@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { randomUUID } from "crypto";
-import { ModelName } from "../aieo/src/index.js";
+import { ModelName } from "aieo";
 import { SessionConfig } from "../repo/session.js";
 import * as asyncReqs from "../graph/reqs.js";
 import { startTracking, endTracking } from "../busy.js";

@@ -2,8 +2,8 @@ import { Request, Response } from "express";
 import { db } from "./neo4j.js";
 import { vectorizeQuery } from "../vector/index.js";
 import { generateObject, jsonSchema } from "ai";
-import { getProviderOptions, resolveLLMConfig } from "../aieo/src/provider.js";
-import { addUsage, normalizeUsage, withLegacyUsage } from "../aieo/src/index.js";
+import { getProviderOptions, resolveLLMConfig } from "aieo";
+import { addUsage, normalizeUsage, withLegacyUsage } from "aieo";
 
 // === Learning + Scope routes ===
 

@@ -13,7 +13,7 @@ import {
   getModelDetails,
   getProviderOptions,
   Provider,
-} from "../aieo/src/provider.js";
+} from "aieo";
 import { generateObject, jsonSchema } from "ai";
 import { formatConceptWithDetails } from "./utils.js";
 import { listConcepts, createConceptDirect, HttpError } from "./service.js";
@@ -30,7 +30,7 @@ import { NodeType, Neo4jNode } from "../graph/types.js";
 import { get_context } from "../repo/agent.js";
 import { cloneOrUpdateRepo } from "../repo/clone.js";
 import { Concept, Usage } from "./types.js";
-import { addUsage, normalizeUsage } from "../aieo/src/usage.js";
+import { addUsage, normalizeUsage } from "aieo";
 import { startTracking, endTracking } from "../busy.js";
 import { generateSlug, makeRepoId } from "./store/utils.js";
 import { bootstrapConcepts } from "./bootstrap.js";

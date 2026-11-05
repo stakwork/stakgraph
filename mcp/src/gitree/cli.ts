@@ -8,8 +8,8 @@ import { StreamingConceptBuilder } from "./builder.js";
 import { Summarizer } from "./summarizer.js";
 import { FileLinker } from "./fileLinker.js";
 import { ClueAnalyzer } from "./clueAnalyzer.js";
-import { getApiKeyForProvider } from "../aieo/src/provider.js";
-import { addUsage, normalizeUsage } from "../aieo/src/usage.js";
+import { getApiKeyForProvider } from "aieo";
+import { addUsage, normalizeUsage } from "aieo";
 import { Usage } from "./types.js";
 
 const program = new Command();

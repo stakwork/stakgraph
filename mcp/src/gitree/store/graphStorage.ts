@@ -15,7 +15,7 @@ import {
   Usage,
 } from "../types.js";
 import { formatPRMarkdown, formatCommitMarkdown, parseRepoFromUrl, computeConceptEmbedding, conceptEmbeddingText, jarvisConceptNodeKey } from "./utils.js";
-import { addUsage, normalizeUsage } from "../../aieo/src/usage.js";
+import { addUsage, normalizeUsage } from "aieo";
 import { jarvisRedisEnabled, pushJarvisEmbeddingJob } from "./jarvis.js";
 
 const Data_Bank = "Data_Bank";

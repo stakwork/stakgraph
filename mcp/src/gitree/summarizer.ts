@@ -1,7 +1,7 @@
 import { Storage } from "./store/index.js";
-import { callGenerateText } from "../aieo/src/stream.js";
-import { Provider } from "../aieo/src/provider.js";
-import { addUsage, normalizeUsage } from "../aieo/src/usage.js";
+import { callGenerateText } from "aieo";
+import { Provider } from "aieo";
+import { addUsage, normalizeUsage } from "aieo";
 import { Concept, PRRecord, CommitRecord, Usage } from "./types.js";
 import {
   appendGitreeLlmExchange,

@@ -17,7 +17,7 @@ import {
   getProviderOptions,
   normalizeUsage,
   withProviderCacheUsage,
-} from "../aieo/src/index.js";
+} from "aieo";
 import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector, toolConfigEnabled, graphWriteEnabled, redactToolsConfig } from "./tools.js";
 import {
   withConceptCollection,

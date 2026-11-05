@@ -13,7 +13,7 @@ import {
 import { textEdit, TextEditInput } from "./textEdit.js";
 import { runDocx, runXlsx } from "./docgen.js";
 import { AGENT_ARTIFACTS_DIR } from "./artifacts.js";
-import { getProviderTool, Provider, ModelName, getGatewayBaseURL } from "../aieo/src/index.js";
+import { getProviderTool, Provider, ModelName, getGatewayBaseURL } from "aieo";
 import { log_agent_context } from "../log/agent.js";
 import { createRunLogsDir, cleanupRunLogsDir } from "../log/utils.js";
 import { RepoAnalyzer } from "gitsee/server";

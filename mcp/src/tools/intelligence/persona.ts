@@ -1,5 +1,5 @@
-import { resolveLLMConfig } from "../../aieo/src/provider.js";
-import { callGenerateObject } from "../../aieo/src/index.js";
+import { resolveLLMConfig } from "aieo";
+import { callGenerateObject } from "aieo";
 import { z } from "zod";
 import { db } from "../../graph/neo4j.js";
 import { vectorizeQuery } from "../../vector/index.js";

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AiUsageWithLegacy } from "../aieo/src/usage.js";
+import type { AiUsageWithLegacy } from "aieo";
 
 // Base step type
 interface BaseStep {

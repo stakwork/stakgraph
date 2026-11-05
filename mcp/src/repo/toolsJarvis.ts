@@ -9,7 +9,7 @@ import {
   getModelDetails,
   getProviderOptions,
   ModelName,
-} from "../aieo/src/index.js";
+} from "aieo";
 import {
   extractFinalAnswer,
   createHasEndMarkerCondition,
@@ -35,7 +35,7 @@ import {
   addUsage,
   normalizeUsage,
   withProviderCacheUsage,
-} from "../aieo/src/usage.js";
+} from "aieo";
 
 function appendNamespace(params: URLSearchParams, namespace?: string): void {
   if (namespace && namespace.length > 0) {

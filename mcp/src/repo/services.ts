@@ -6,7 +6,7 @@ import { startTracking, endTracking } from "../busy.js";
 import { parse_files_contents } from "../gitsee/agent/index.js";
 import { randomUUID } from "crypto";
 import { createSession, appendSessionEnd } from "./session.js";
-import { getModelDetails } from "../aieo/src/index.js";
+import { getModelDetails } from "aieo";
 import {
   EXPLORER,
   FINAL_ANSWER as GITSEE_FINAL_ANSWER,

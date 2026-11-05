@@ -2,7 +2,7 @@ import {
   addUsage,
   AiUsageWithLegacy,
   withLegacyUsage,
-} from "../aieo/src/index.js";
+} from "aieo";
 import {
   detectLanguagesAndPkgFiles,
   extractEnvVarsFromRepo,

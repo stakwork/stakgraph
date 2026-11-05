@@ -15,7 +15,6 @@
     "node_modules",
     "**/*.test.ts",
     "**/*.spec.ts",
-    "**/test/**/*",
-    "src/aieo/src/test/**/*"
+    "**/test/**/*"
   ]
 }

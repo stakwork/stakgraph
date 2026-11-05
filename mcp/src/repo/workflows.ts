@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../graph/neo4j.js';
 import { generateText } from 'ai';
-import { addUsage, emptyUsage, getProviderOptions, normalizeUsage, resolveLLMConfig, withLegacyUsage } from '../aieo/src/index.js';
+import { addUsage, emptyUsage, getProviderOptions, normalizeUsage, resolveLLMConfig, withLegacyUsage } from "aieo";
 import * as asyncReqs from '../graph/reqs.js';
 
 function buildPrompt(workflow_json: string): string {

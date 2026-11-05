@@ -3,7 +3,7 @@ import path from "path";
 import { Concept, PRRecord, CommitRecord, Clue, LinkResult, ChronologicalCheckpoint, Usage } from "../types.js";
 import { Storage } from "./storage.js";
 import { formatPRMarkdown, parsePRMarkdown, formatCommitMarkdown, parseCommitMarkdown, computeConceptEmbedding } from "./utils.js";
-import { addUsage, normalizeUsage } from "../../aieo/src/usage.js";
+import { addUsage, normalizeUsage } from "aieo";
 
 function normalizeConcept(concept: any): Concept {
   return {

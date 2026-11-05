@@ -7,7 +7,7 @@ import { db } from "../graph/neo4j.js";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { createSession, appendSessionEnd } from "./session.js";
-import { getModelDetails } from "../aieo/src/index.js";
+import { getModelDetails } from "aieo";
 
 export interface MockInfo {
   name: string;

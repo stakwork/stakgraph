@@ -12,7 +12,7 @@ import {
   normalizeUsage,
   resolveLLMConfig,
   withLegacyUsage,
-} from "../aieo/src/index.js";
+} from "aieo";
 import { vectorizeBatch } from "../vector/index.js";
 import * as asyncReqs from "../graph/reqs.js";
 import { startTracking, endTracking } from "../busy.js";

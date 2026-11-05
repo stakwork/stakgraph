@@ -1,5 +1,5 @@
 import { db } from "../../graph/neo4j.js";
-import { resolveLLMConfig, Provider } from "../../aieo/src/provider.js";
+import { resolveLLMConfig, Provider } from "aieo";
 import { HintExtraction, Neo4jNode } from "../../graph/types.js";
 import { z } from "zod";
 import {
@@ -7,7 +7,7 @@ import {
   callGenerateObject,
   emptyUsage,
   withLegacyUsage,
-} from "../../aieo/src/index.js";
+} from "aieo";
 
 async function findNodesFromExtraction(
   extracted: HintExtraction
