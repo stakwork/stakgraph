@@ -10,7 +10,7 @@ import { Logger } from "./logger.js";
 import { createOpenRouter, OpenRouterChatSettings } from "@openrouter/ai-sdk-provider";
 import { env } from "./env.js";
 
-export type Provider = "anthropic" | "google" | "openai" | "openrouter" | "xai" | "maple";
+export type Provider = "anthropic" | "google" | "openai" | "openrouter" | "xai" | "maple" | "numes";
 
 /**
  * Optional LLM gateway URL (e.g. Bifrost: https://github.com/maximhq/bifrost,
@@ -40,10 +40,14 @@ export const GATEWAY_PATHS: Record<Provider, string> = {
   // Maple's own proxy path, so a bare proxy root ("http://maple:8080") gets
   // its /v1. Maple never rides LLM_GATEWAY_URL: its proxy is the endpoint.
   maple: "/v1",
+  // Numes' API path, so a bare root ("https://api.numes.ai") gets it. Numes
+  // never rides LLM_GATEWAY_URL either: the gateway has no route to it.
+  numes: "/api/v1",
 };
 
 export function getGatewayBaseURL(provider: Provider): string | undefined {
-  if (provider === "maple") return undefined;
+  // A provider with an endpoint of its own (BASE_URL_ENV) never rides it.
+  if (BASE_URL_ENV[provider]) return undefined;
   return LLM_GATEWAY_URL ? `${LLM_GATEWAY_URL}${GATEWAY_PATHS[provider]}` : undefined;
 }
 
@@ -150,10 +154,11 @@ export const PROVIDERS: Provider[] = [
   "openrouter",
   "xai",
   "maple",
+  "numes",
 ];
 
 // shortcuts to latest models
-export type ModelName = "sonnet" | "opus" | "haiku" | "gemini" | "gpt" | "kimi" | "glm" | "grok" | "maple";
+export type ModelName = "sonnet" | "opus" | "haiku" | "gemini" | "gpt" | "kimi" | "glm" | "grok" | "maple" | "numes";
 
 type ModelId = string;
 
@@ -183,6 +188,11 @@ export const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
   maple: {
     maple: "gemma4-31b",
   },
+  // Numes ids are OpenRouter-style "author/model" slugs, so a Numes name has
+  // three segments ("numes/z-ai/glm-5.3"); "numes" alone is a free model.
+  numes: {
+    numes: "z-ai/glm-5.3",
+  },
 };
 
 export const DEFAULT_MODELS: Record<Provider, string> = {
@@ -192,6 +202,7 @@ export const DEFAULT_MODELS: Record<Provider, string> = {
   openrouter: MODELS.openrouter.kimi!,
   xai: MODELS.xai.grok!,
   maple: MODELS.maple.maple!,
+  numes: MODELS.numes.numes!,
 };
 
 // Light/cheap models for batch operations (descriptions, learnings, etc.)
@@ -202,6 +213,7 @@ const LIGHT_MODELS: Record<Provider, string> = {
   openrouter: "moonshotai/kimi-k2.6",
   xai: "grok-4-fast-non-reasoning",
   maple: "gemma4-31b",
+  numes: "z-ai/glm-5.3-flash",
 };
 
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -314,6 +326,42 @@ function mapleFetch(inner: typeof fetch): typeof fetch {
   };
 }
 
+export interface NumesModel {
+  /** Context window (prompt + output), tokens. */
+  context: number;
+  /** Per-call output cap: the model's own limit (a `max_tokens` past it is a
+   *  400) and under a tenth of the window, since Numes refuses a call whose
+   *  prompt plus `max_tokens` passes the window (z-ai/glm-5.3: a 199k prompt
+   *  with 65,536 is a 502, with 1,000 an answer) — so a prompt can reach
+   *  strut's compaction mark (90%) and still be answered. */
+  maxOutput: number;
+  pricing: TokenPricing;
+}
+
+const FREE: TokenPricing = { inputTokenPrice: 0, outputTokenPrice: 0 };
+
+/**
+ * Numes (numes.ai): a marketplace of inference providers behind one
+ * OpenAI-compatible API, `https://api.numes.ai/api/v1` (Chat Completions;
+ * its own `reasoning_effort` mapping, so any value is taken). Model ids are
+ * OpenRouter-style slugs, the same on every provider that serves the model.
+ * Listed: the models Numes serves FREE, from `GET /api/v1/models` on
+ * 2026-11-04 (each answered, called a tool and reported `cost: 0`). A model
+ * that stops being free is still priced 0 here until the list changes. Every
+ * other Numes model is priced like the same slug on OpenRouter when the host
+ * loaded those rates (loadModelPricing), else at TOKEN_PRICING.numes.
+ */
+export const NUMES_MODELS: Record<string, NumesModel> = {
+  "z-ai/glm-5.3": { context: 262_144, maxOutput: 24_576, pricing: FREE },
+  "z-ai/glm-5.3-flash": { context: 1_048_576, maxOutput: 64_000, pricing: FREE },
+  "nvidia/nemotron-3-super-120b-a12b": { context: 1_048_576, maxOutput: 64_000, pricing: FREE },
+  "nvidia/nemotron-3-ultra-550b-a55b": { context: 1_048_576, maxOutput: 64_000, pricing: FREE },
+  "dealignai/glm-5.3-uncensored-fp8": { context: 1_048_576, maxOutput: 64_000, pricing: FREE },
+  "dealignai/glm-5.3-flash-uncensored-fp8": { context: 1_048_576, maxOutput: 64_000, pricing: FREE },
+  "dealignai/deepseek-v4.1-flash-uncensored-fp8": { context: 1_048_576, maxOutput: 64_000, pricing: FREE },
+  "uniboshi/kimi-k3-abliterated-v1": { context: 1_048_576, maxOutput: 64_000, pricing: FREE },
+};
+
 export function getLightModelForProvider(provider: Provider): string {
   return LIGHT_MODELS[provider];
 }
@@ -336,6 +384,7 @@ export function computeSessionCost(provider: Provider, usage: TokenUsageForCost,
   if (typeof actualCost === "number" && actualCost >= 0) return actualCost;
   const pricing =
     (provider === "maple" && modelId ? MAPLE_MODELS[modelId]?.pricing : undefined) ??
+    (provider === "numes" && modelId ? NUMES_MODELS[modelId]?.pricing : undefined) ??
     (modelId ? getModelPricing(modelId) : undefined) ??
     TOKEN_PRICING[provider];
   if (!pricing) return 0;
@@ -373,6 +422,8 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
     // Only the alias: a bare Maple id is no one's (canonicalModelName says so).
     case "maple":
       return "maple";
+    case "numes":
+      return "numes";
     // Full model IDs
     case "claude-sonnet-5-5":
     case "claude-sonnet-5":
@@ -446,19 +497,23 @@ export const API_KEY_ENV: Record<Provider, string> = {
   openrouter: "OPENROUTER_API_KEY",
   xai: "XAI_API_KEY",
   maple: "MAPLE_API_KEY",
+  numes: "NUMES_API_KEY",
 };
 
 /**
- * A provider whose endpoint is the deployment's own (Maple's proxy): the env
- * var NAME its base URL is read from — through the host's getSecret first,
- * like the key (resolve.ts) — and the URL when none is set. A caller's
- * `baseUrl` wins over both. The full URL, `/v1` included.
+ * A provider with an endpoint of its own, never the LLM gateway's (Maple's
+ * proxy, which the deployment runs; Numes' API): the env var NAME its base
+ * URL is read from — through the host's getSecret first, like the key
+ * (resolve.ts) — and the URL when none is set. A caller's `baseUrl` wins
+ * over both. The full URL, version path included.
  */
 export const BASE_URL_ENV: Partial<Record<Provider, string>> = {
   maple: "MAPLE_BASE_URL",
+  numes: "NUMES_BASE_URL",
 };
 export const DEFAULT_BASE_URLS: Partial<Record<Provider, string>> = {
   maple: "http://localhost:8080/v1",
+  numes: "https://api.numes.ai/api/v1",
 };
 
 /**
@@ -769,6 +824,7 @@ export function getModel(
       "glm",
       "grok",
       "maple",
+      "numes",
     ];
     if (knownShortcuts.includes(opts.modelName)) {
       modelId = getModelForProvider(provider, opts.modelName as ModelName);
@@ -787,8 +843,9 @@ export function getModel(
   // Explicit baseUrl from caller takes precedence over the global LLM gateway.
   // Normalize caller-supplied URLs so a bare gateway root (e.g. the swarm
   // host:port) gets the provider's drop-in path appended.
-  // A provider with an endpoint of its own (Maple's proxy) reads it from env
-  // here; resolve.ts asks the host's getSecret first and passes it in.
+  // A provider with an endpoint of its own (Maple's proxy, Numes' API) reads
+  // it from env here; resolve.ts asks the host's getSecret first and passes
+  // it in.
   const ownBaseUrl = BASE_URL_ENV[provider]
     ? normalizeApiKey(env[BASE_URL_ENV[provider]!]) ?? DEFAULT_BASE_URLS[provider]
     : undefined;
@@ -944,6 +1001,16 @@ export function getModel(
       });
       return maple.chat(modelId);
     }
+    case "numes": {
+      // Chat Completions, as for Maple: Numes speaks no Responses API.
+      const numes = createOpenAI({
+        apiKey,
+        baseURL,
+        ...(extraHeaders && { headers: extraHeaders }),
+        fetch: timeoutFetch,
+      });
+      return numes.chat(modelId);
+    }
     // case "claude_code":
     //   try {
     //     const customProvider = createClaudeCode({
@@ -1044,6 +1111,8 @@ const DEFAULT_CONTEXT_LIMITS: Record<Provider, number> = {
   xai: 256_000,
   // An unlisted Maple model: its smallest window.
   maple: 131_072,
+  // An unlisted Numes model: the common small window of its catalogue.
+  numes: 131_072,
 };
 
 // Conservative fallback if both model and provider lookups miss
@@ -1054,6 +1123,7 @@ const FALLBACK_CONTEXT_LIMIT = 128_000;
  */
 export function getContextLimit(modelId: string, provider: Provider): number {
   if (provider === "maple") return MAPLE_MODELS[modelId]?.context ?? DEFAULT_CONTEXT_LIMITS.maple;
+  if (provider === "numes") return NUMES_MODELS[modelId]?.context ?? DEFAULT_CONTEXT_LIMITS.numes;
   return MODEL_CONTEXT_LIMITS[modelId] ?? DEFAULT_CONTEXT_LIMITS[provider] ?? FALLBACK_CONTEXT_LIMIT;
 }
 
@@ -1090,6 +1160,13 @@ const TOKEN_PRICING: Record<Provider, TokenPricing> = {
   maple: {
     inputTokenPrice: 8.0,
     outputTokenPrice: 25.0,
+  },
+  // A Numes model neither listed free (NUMES_MODELS) nor priced by OpenRouter's
+  // rates: the dearest in Numes' catalogue (openai/gpt-6-astra, 2026-11-04),
+  // so a cost is never under-reported.
+  numes: {
+    inputTokenPrice: 12.28,
+    outputTokenPrice: 61.36,
   },
 };
 
@@ -1264,6 +1341,11 @@ export function getProviderOptions(
         openai: { reasoningEffort: mapleReasoningEffort(modelId, fast ? "none" : "high") },
       };
     }
+    case "numes":
+      // Under `openai`, as for Maple. Numes maps an effort to what the model
+      // serving the call takes, so none and high are sent as they are.
+      if (!thinkingSpeed) return { openai: {} satisfies OpenAIResponsesProviderOptions };
+      return { openai: { reasoningEffort: fast ? "none" : "high" } };
     default:
       throw new Error(`Unsupported provider: ${provider}`);
   }
