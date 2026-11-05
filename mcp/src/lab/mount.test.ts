@@ -9,7 +9,7 @@ import { randomBytes } from "node:crypto";
 import express from "express";
 import { getRequestListener } from "@hono/node-server";
 import { createStrut, MemoryRunStore, WorkspaceManager, type Strut } from "strut";
-import { labAuth, retryable, upgradeLabRoom } from "./mount.js";
+import { labAuth, retryable, upgradeLabChannel, upgradeLabRoom } from "./mount.js";
 import { labActorOf, resolveLabActor, resolveLabScope } from "./actor.js";
 import { mintToken, signApiToken, signEventsToken, verifyApiToken } from "../repo/events.js";
 
@@ -23,11 +23,12 @@ type RoomMsg = Record<string, unknown>;
 function openRoom(
   port: number,
   headers: Record<string, string>,
-): Promise<{ status: number; until: (pred: (m: RoomMsg) => boolean) => Promise<RoomMsg>; close: () => void }> {
+  path = "/lab/rooms",
+): Promise<{ status: number; until: (pred: (m: RoomMsg) => boolean) => Promise<RoomMsg>; send: (m: RoomMsg) => void; close: () => void }> {
   return new Promise((resolve, reject) => {
     const req = http.request({
       port,
-      path: "/lab/rooms",
+      path,
       headers: {
         connection: "Upgrade",
         upgrade: "websocket",
@@ -38,7 +39,7 @@ function openRoom(
     });
     req.on("response", (res) => {
       res.resume();
-      resolve({ status: res.statusCode ?? 0, until: () => Promise.reject(new Error("refused")), close() {} });
+      resolve({ status: res.statusCode ?? 0, until: () => Promise.reject(new Error("refused")), send() {}, close() {} });
     });
     req.on("upgrade", (_res, socket) => {
       const messages: RoomMsg[] = [];
@@ -71,7 +72,14 @@ function openRoom(
         }
         throw new Error("the room never got it");
       };
-      resolve({ status: 101, until, close: () => socket.destroy() });
+      // A client frame is masked (RFC 6455); these are small text frames.
+      const send = (m: RoomMsg) => {
+        const payload = Buffer.from(JSON.stringify(m));
+        const mask = randomBytes(4);
+        const head = payload.length < 126 ? Buffer.from([0x81, 0x80 | payload.length]) : Buffer.from([0x81, 0x80 | 126, payload.length >> 8, payload.length & 0xff]);
+        socket.write(Buffer.concat([head, mask, Buffer.from(payload.map((b, i) => b ^ mask[i % 4]!))]));
+      };
+      resolve({ status: 101, until, send, close: () => socket.destroy() });
     });
     req.on("error", reject);
     req.end();
@@ -505,6 +513,51 @@ describe("labAuth", () => {
       } finally {
         room.close();
       }
+    } finally {
+      await new Promise((r) => sockets.close(r));
+    }
+  });
+
+  it("channels: /lab/channels — a ticket minted through the lab is the credential; neither, or a forged one, is a 401; a credential plus ?app= works", async () => {
+    const sockets = http.createServer();
+    sockets.on("upgrade", (req, socket, head) => upgradeLabChannel(req, socket, head, async () => strut));
+    await new Promise<void>((r) => sockets.listen(0, r));
+    const sp = (sockets.address() as AddressInfo).port;
+    const published = await strut.workspace.publishApp("board", "hash-1", { title: "Board" } as never);
+    const version = published.version;
+    try {
+      // Hive's shape: the swarm key + the member as x-strut-actor mints the ticket.
+      const minted = await get(
+        port,
+        "/strut/apps/board/channel-ticket",
+        { "content-type": "application/json", "x-api-token": API_TOKEN, "x-strut-actor": "octocat-42" },
+        "POST",
+        JSON.stringify({ version }),
+      );
+      assert.equal(minted.status, 200, minted.body);
+      const { ticket } = JSON.parse(minted.body) as { ticket: string };
+      assert.ok(ticket);
+      // 1. The ticket alone, no credential: in, as the ticket's actor.
+      const viaTicket = await openRoom(sp, {}, `/lab/channels?ticket=${encodeURIComponent(ticket)}`);
+      assert.equal(viaTicket.status, 101);
+      try {
+        viaTicket.send({ op: "join", channel: "main" });
+        const joined = await viaTicket.until((m) => m.op === "joined");
+        const members = joined.members as Array<{ actor?: string }>;
+        assert.deepEqual(members.map((m) => m.actor), ["octocat-42"]);
+      } finally {
+        viaTicket.close();
+      }
+      // 2. Neither a credential nor a ticket (nor an empty one).
+      assert.equal((await openRoom(sp, {}, "/lab/channels")).status, 401);
+      assert.equal((await openRoom(sp, {}, "/lab/channels?ticket=")).status, 401);
+      // 3. A forged ticket is strut's 401.
+      assert.equal((await openRoom(sp, {}, "/lab/channels?ticket=forged.ticket")).status, 401);
+      // 4. A person's credential plus ?app=<name>@<version>.
+      const person = `Bearer ${signApiToken("60d", "octocat-42", "lab:peer")}`;
+      const viaCred = await openRoom(sp, { authorization: person }, `/lab/channels?app=board@${version}`);
+      assert.equal(viaCred.status, 101);
+      viaCred.close();
     } finally {
       await new Promise((r) => sockets.close(r));
     }
