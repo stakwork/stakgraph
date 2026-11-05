@@ -319,6 +319,13 @@ function isTokenRead(req: Request): boolean {
  * served. The door serves `step_run` alone, for the VISITOR identity a
  * public app's document carries: reads only, with no actor, nothing kept.
  *
+ * And the VISITOR'S PAGE itself: a GET/HEAD of strut's UI shell (`/` or
+ * `/index.html`, the same file strut serves anyone without a credential —
+ * no data in it) opened with `public=1`, the app as the public view serves
+ * it (`/?app=<name>&solo=1&public=1`): what the store frames and the
+ * Public view dialog's "Open as a visitor" opens. Everything that page then
+ * loads is `/assets/*` (`isUiAsset`) or `/public/*` (above).
+ *
  * Not `/public-view` (the record itself, a person's: behind the credential
  * like the rest), no other method, and no other POST. The path is parsed as
  * `isUiAsset` parses it, so a path that resolves elsewhere
@@ -326,10 +333,11 @@ function isTokenRead(req: Request): boolean {
  */
 function isPublicViewRead(req: Request): boolean {
   try {
-    const { pathname } = new URL(`http://localhost${req.url}`);
+    const { pathname, searchParams } = new URL(`http://localhost${req.url}`);
     if (req.method === "POST") return pathname === "/public/mcp";
     if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS") return false;
-    return /^\/public(?:\/|$)/.test(pathname);
+    if (/^\/public(?:\/|$)/.test(pathname)) return true;
+    return req.method !== "OPTIONS" && (pathname === "/" || pathname === "/index.html") && searchParams.get("public") === "1";
   } catch {
     return false;
   }

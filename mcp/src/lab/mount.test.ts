@@ -295,6 +295,9 @@ describe("labAuth", () => {
       ["/lab/public/workflows", "OPTIONS"],
       ["/lab/public/mcp", "OPTIONS"],
       ["/lab/public/mcp", "POST"],
+      // The visitor's page: strut's UI shell, opened on a public app.
+      ["/lab/?app=bench&solo=1&public=1", "GET"],
+      ["/lab/index.html?app=bench&solo=1&public=1", "HEAD"],
     ] as const) {
       const res = await get(port, path, {}, method);
       assert.equal(res.status, 200, `${method} ${path}`);
@@ -320,6 +323,16 @@ describe("labAuth", () => {
       ["/lab/public/other", "POST"],
       ["/lab/public/mcp/x", "POST"],
       ["/lab/public/mcp/../../workflows/hello/run", "POST"],
+      // The UI shell only with `public=1`, only by GET/HEAD, and nothing
+      // else carrying the flag.
+      ["/lab/", "GET"],
+      ["/lab/?app=bench&solo=1", "GET"],
+      ["/lab/?public=0", "GET"],
+      ["/lab/?public=1", "POST"],
+      ["/lab/?public=1", "OPTIONS"],
+      ["/lab/workflows?public=1", "GET"],
+      ["/lab/apps?public=1", "GET"],
+      ["/lab/x/index.html?public=1", "GET"],
     ] as const) {
       const res = await get(port, path, {}, method);
       assert.equal(res.status, 401, `${method} ${path}`);
