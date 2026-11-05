@@ -13,8 +13,14 @@ import (
 // provider-computed Usage.Cost.TotalCost wins over everything here):
 //
 //  1. The operator's model_pricing config block — the explicit
-//     override, and the only source in air-gapped deployments.
-//  2. The pricing catalog (internal/pricing) — bifrost's own
+//     override baked into the image, and the only source in
+//     air-gapped deployments.
+//  2. The runtime price table (runtime_pricing.go) — rows pushed
+//     through PUT /_plugin/pricing on a running gateway, for models
+//     the datasheet lacks: custom providers such as Maple or Numes.
+//     It also lets an operator correct a datasheet row without a
+//     new image.
+//  3. The pricing catalog (internal/pricing) — bifrost's own
 //     datasheet, fetched at boot and refreshed daily. Same file
 //     bifrost prices logs.db rows from, so enforcement dollars and
 //     reported dollars agree.
@@ -29,14 +35,19 @@ import (
 // "<provider>/<model>", then the name with any "provider/" prefix
 // stripped — so "claude-sonnet-5", "anthropic/claude-sonnet-5", and
 // ("xai", "grok-4") → "xai/grok-4" all resolve against either source
-// whichever form the caller holds. provider is the Bifrost provider
-// id that served the call; "" is allowed and skips the second form.
+// whichever form the caller holds; "maple/gemma4-31b" matches the
+// ("maple", "gemma4-31b") a custom provider's call reports. provider
+// is the Bifrost provider id that served the call; "" is allowed and
+// skips the second form.
 func PriceCall(provider, model string, usage pricing.Usage) (float64, bool) {
 	keys := pricing.Keys(provider, model)
 	if len(keys) == 0 {
 		return 0, false
 	}
 	if entry, ok := configPrice(keys); ok {
+		return entry.price().Cost(usage), true
+	}
+	if entry, ok := runtimePrice(keys); ok {
 		return entry.price().Cost(usage), true
 	}
 	if p, ok := pricing.Lookup(provider, model); ok {

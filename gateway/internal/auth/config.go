@@ -80,9 +80,11 @@ type Config struct {
 	// by only a handful of providers — Anthropic and OpenAI chat
 	// responses don't have it in bifrost core v1.5.x). Keys are
 	// resolved model names as Bifrost reports them, with or without
-	// the "provider/" prefix. A model with no entry accumulates $0
-	// and logs loudly — undercounting is visible in the daily
-	// logs.db reconciliation rather than silently guessed at.
+	// the "provider/" prefix. A model with no entry falls through to
+	// the runtime table (PUT /_plugin/pricing), then the datasheet; one
+	// none of them knows accumulates $0 and logs loudly — undercounting
+	// is visible in the daily logs.db reconciliation rather than
+	// silently guessed at.
 	ModelPricing map[string]ModelPrice `json:"model_pricing"`
 }
 

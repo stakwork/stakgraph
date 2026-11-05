@@ -109,6 +109,10 @@ func Init(config any) error {
 	// cache and no network, pricing falls through to the config
 	// model_pricing table.
 	pricing.Init()
+	// The runtime price table PUT /_plugin/pricing keeps on the data
+	// volume: rows for models the datasheet lacks (custom providers).
+	// Never fatal — an unreadable file logs an ERROR and starts empty.
+	auth.LoadRuntimePricing(env.PricingPathValue())
 
 	if err := tlog.Init(env.TlogPathValue()); err != nil {
 		pluginlog.Errf("tlog: %v — transparency log DISABLED: no leaves will be appended and /_plugin/tlog/sth will 503", err)

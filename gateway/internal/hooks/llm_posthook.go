@@ -204,8 +204,9 @@ func tokensOf(u *schemas.BifrostLLMUsage) pricing.Usage {
 //
 //  1. Provider-computed Usage.Cost.TotalCost (only some providers).
 //  2. auth.PriceCall on the (provider, resolved model) pair —
-//     operator model_pricing config first, then the internal/pricing
-//     catalog (bifrost's own datasheet, refreshed daily). The
+//     operator model_pricing config first, then the runtime table
+//     (PUT /_plugin/pricing), then the internal/pricing catalog
+//     (bifrost's own datasheet, refreshed daily). The
 //     provider matters: the datasheet keys some providers' rows as
 //     "<provider>/<model>" ("xai/grok-4") while Bifrost reports the
 //     wire model bare ("grok-4"). The call's cached-token breakdown
@@ -226,7 +227,7 @@ func resolveCost(call callUsage, dims map[string]string) float64 {
 	}
 	if usage.TotalTokens > 0 {
 		pluginlog.Warnf(
-			"accounting: no price for provider=%q model=%q (run_id=%s) — %d tokens accumulated as $0; add a model_pricing entry",
+			"accounting: no price for provider=%q model=%q (run_id=%s) — %d tokens accumulated as $0; add a model_pricing entry or PUT /_plugin/pricing",
 			call.provider, call.model, dims[pluginctx.DimRunID], usage.TotalTokens,
 		)
 	}
