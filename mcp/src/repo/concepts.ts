@@ -8,7 +8,7 @@ import {
 } from "../gitree/service.js";
 import { GraphStorage } from "../gitree/store/index.js";
 import type { ConceptProposal, ConceptProposalAction } from "../gitree/types.js";
-import { getProviderOptions } from "../aieo/src/index.js";
+import { getProviderOptions } from "aieo";
 import { extractLeadingJsonObject, maxOutputTokensFor } from "./utils.js";
 import type { ReflectedConcept } from "./session.js";
 

@@ -19,7 +19,7 @@ import { fetchPullRequestContent } from "./pr.js";
 import { fetchCommitContent } from "./commit.js";
 import {ClueAnalyzer} from "./clueAnalyzer.js";
 import { exploreNewConcept } from "./bootstrap.js";
-import { addUsage, normalizeUsage } from "../aieo/src/usage.js";
+import { addUsage, normalizeUsage } from "aieo";
 
 /**
  * Main class for building the concept knowledge base from PRs and commits

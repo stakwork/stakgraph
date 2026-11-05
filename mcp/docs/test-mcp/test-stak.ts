@@ -106,7 +106,7 @@ async function testWithAgent() {
   console.log("\n=== Test with ToolLoopAgent (full simulation) ===\n");
 
   const { ToolLoopAgent } = await import("ai");
-  const { getModelDetails } = await import("../../src/aieo/dist/index.js");
+  const { getModelDetails } = await import("aieo");
 
   const mcpServers: McpServer[] = [
     {

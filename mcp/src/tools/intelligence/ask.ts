@@ -1,4 +1,4 @@
-import { resolveLLMConfig, Provider } from "../../aieo/src/provider.js";
+import { resolveLLMConfig, Provider } from "aieo";
 import {
   addUsage,
   AiUsageWithLegacy,
@@ -6,7 +6,7 @@ import {
   emptyUsage,
   ModelMessage,
   withLegacyUsage,
-} from "../../aieo/src/index.js";
+} from "aieo";
 import { z } from "zod";
 import { db } from "../../graph/neo4j.js";
 import { get_context_explore } from "../explore/tool.js";

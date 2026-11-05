@@ -26,7 +26,7 @@ import * as gitree from "./gitree/routes.js";
 import * as gitreeProposals from "./gitree/proposals.js";
 import { mountLab, attachLabSockets, labStrut } from "./lab/mount.js";
 import { createProxies } from "./lab/proxy.js";
-import { loadModelPricing } from "./aieo/src/index.js";
+import { loadModelPricing } from "aieo";
 import path from "path";
 import { fileURLToPath } from "url";
 import cors from "cors";
@@ -55,7 +55,7 @@ import {
 } from "./repo/events.js";
 import { sendIndexWithToken } from "./utils.js";
 import { env } from "./env.js";
-import { useEnv } from "./aieo/src/index.js";
+import { useEnv } from "aieo";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

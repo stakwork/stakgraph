@@ -2,7 +2,7 @@ import { Storage } from "./store/index.js";
 import { Concept, Usage } from "./types.js";
 import { generateSlug, makeRepoId } from "./store/utils.js";
 import { get_context } from "../../repo/agent.js";
-import { normalizeUsage } from "../../aieo/src/usage.js";
+import { normalizeUsage } from "aieo";
 import { DOC_GUIDELINES } from "./llm.js";
 import { DOC_FILES_DESCRIPTION, IDENTIFY_DOCS_PROMPT, IDENTIFY_DOCS_SCHEMA, IDENTIFY_DOCS_SYSTEM, normalizeDocPaths } from "./doc-files.js";
 import * as fs from "fs";

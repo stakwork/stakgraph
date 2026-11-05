@@ -6,7 +6,7 @@ import {
   registerAbortController,
   unregisterAbortController,
 } from "../repo/events.js";
-import { ModelName } from "../aieo/src/index.js";
+import { ModelName } from "aieo";
 import { randomUUID } from "crypto";
 import { SessionConfig } from "../repo/session.js";
 import { buildLogsPrompt } from "./context.js";

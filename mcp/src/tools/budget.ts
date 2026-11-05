@@ -1,5 +1,5 @@
-import { computeSessionCost, Provider } from "../aieo/src/provider.js";
-import { AiUsage, AiUsageWithLegacy, emptyUsage, withLegacyUsage } from "../aieo/src/usage.js";
+import { computeSessionCost, Provider } from "aieo";
+import { AiUsage, AiUsageWithLegacy, emptyUsage, withLegacyUsage } from "aieo";
 
 export interface BudgetTracker {
   budgetLimit: number;

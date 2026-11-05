@@ -13,7 +13,7 @@ import { SHUTDOWN_ORPHAN_ERROR } from "../graph/reqs.js";
 import { startTracking, endTracking } from "../busy.js";
 import { services_agent } from "./services.js";
 import { mocks_agent } from "./mocks.js";
-import { ModelName } from "../aieo/src/index.js";
+import { ModelName } from "aieo";
 import { SessionConfig, loadSession, loadSessionConfig, loadSessionMetadata, loadReflection, sessionExists } from "./session.js";
 import { McpServer } from "./mcpServers.js";
 import { existsSync } from "fs";

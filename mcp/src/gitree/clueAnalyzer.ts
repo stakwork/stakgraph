@@ -1,6 +1,6 @@
 import { Storage } from "./store/index.js";
 import { Clue, ClueAnalysisResult, Usage } from "./types.js";
-import { addUsage, normalizeUsage } from "../aieo/src/usage.js";
+import { addUsage, normalizeUsage } from "aieo";
 import { get_context } from "../repo/agent.js";
 import { vectorizeQuery } from "../vector/index.js";
 

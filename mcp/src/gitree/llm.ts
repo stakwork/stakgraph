@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { callGenerateObject } from "../aieo/src/stream.js";
-import { normalizeUsage } from "../aieo/src/usage.js";
-import { Provider } from "../aieo/src/provider.js";
+import { callGenerateObject } from "aieo";
+import { normalizeUsage } from "aieo";
+import { Provider } from "aieo";
 import { LLMDecision, Usage } from "./types.js";
 import {
   appendMessages,

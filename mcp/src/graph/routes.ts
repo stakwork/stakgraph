@@ -54,7 +54,7 @@ import {
   getApiKeyForProvider,
   getProviderForModel,
   normalizeUsage,
-} from "../aieo/src/index.js";
+} from "aieo";
 import { generate_persona_variants } from "../tools/intelligence/persona.js";
 import {
   clone_and_explore_parse_files,
@@ -64,7 +64,7 @@ import { GitSeeHandler } from "gitsee/server";
 import * as asyncReqs from "./reqs.js";
 import { randomUUID } from "crypto";
 import { createSession, appendSessionEnd } from "../repo/session.js";
-import { getModelDetails } from "../aieo/src/provider.js";
+import { getModelDetails } from "aieo";
 import {
   prepareGitHubRepoNode,
   prepareContributorNode,

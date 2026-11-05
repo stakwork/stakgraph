@@ -5,7 +5,7 @@ import {
   resolveLLMConfig,
   ModelMessage,
   withLegacyUsage,
-} from "../../aieo/src/index.js";
+} from "aieo";
 import { Answer } from "./ask.js";
 
 function RECOMPOSE_PROMPT(user_query: string, qas: string): string {

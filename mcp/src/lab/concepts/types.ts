@@ -1,4 +1,4 @@
-import type { AiUsageWithLegacy } from "../../aieo/src/usage.js";
+import type { AiUsageWithLegacy } from "aieo";
 
 export type Usage = AiUsageWithLegacy;
 

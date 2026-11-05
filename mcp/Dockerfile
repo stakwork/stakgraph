@@ -145,7 +145,6 @@ COPY ./yarn.lock ./yarn.lock
 COPY ./.yarnrc ./.yarnrc
 
 # Copy workspace package.json files (required for yarn workspaces)
-COPY ./src/aieo/package.json ./src/aieo/package.json
 COPY ./src/gitsee/agent/package.json ./src/gitsee/agent/package.json
 
 # Install dependencies. This also clones strut (git dep in package.json) and
@@ -178,9 +177,6 @@ RUN extra="$(find node_modules -mindepth 2 -type d -name onnxruntime-node -not -
 COPY ./tsconfig.json ./tsconfig.json
 COPY ./src ./src
 COPY ./scripts ./scripts
-
-# Build aieo first so gitsee-agent can find the dist folder
-RUN cd src/aieo && yarn build
 
 RUN mkdir -p ./docs
 COPY ./docs/redoc-static.html ./docs/redoc-static.html

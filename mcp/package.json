@@ -6,11 +6,7 @@
   "private": true,
   "workspaces": {
     "packages": [
-      "src/aieo",
       "src/gitsee/agent"
-    ],
-    "nohoist": [
-      "**/gitsee*/aieo"
     ]
   },
   "resolutions": {
@@ -47,6 +43,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.71",
     "@ai-sdk/mcp": "2.0.65",
+    "@ai-sdk/openai": "4.0.69",
     "@ai-sdk/provider": "4.0.21",
     "@anthropic-ai/sdk": "0.37.0",
     "@aws-sdk/client-cloudwatch-logs": "3.994.0",
@@ -61,6 +58,7 @@
     "@openrouter/ai-sdk-provider": "3.0.0",
     "@playwright/test": "1.58.1",
     "ai": "7.0.126",
+    "aieo": "^0.2.9",
     "archy": "1.0.0",
     "axios": "1.13.4",
     "commander": "14.0.3",
@@ -83,7 +81,7 @@
     "redis": "^6.2.1",
     "sharp": "0.35.5",
     "simple-git": "3.30.0",
-    "strut": "git+https://github.com/stakwork/strut.git#3e0f23b34c3fd509d13af551a443a92131be1e38",
+    "strut": "git+https://github.com/stakwork/strut.git#c3f4f56c78db4d7e2597f046c8b48ceca490d654",
     "tsx": "4.21.0",
     "uuid": "11.1.0",
     "zod": "4.6.5"

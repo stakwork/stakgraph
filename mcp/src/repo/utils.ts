@@ -39,7 +39,7 @@ function countTokens(text: string): number {
  * truncate a deep thinking pass mid-step and silently end the tool loop
  * with no answer. aieo's, so the repo agents and resolveModel agree.
  */
-export { maxOutputTokensFor } from "../aieo/src/index.js";
+export { maxOutputTokensFor } from "aieo";
 
 /**
  * Strip the userinfo section out of any URL embedded in `text`.

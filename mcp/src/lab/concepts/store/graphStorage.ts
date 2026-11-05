@@ -12,7 +12,7 @@ import {
   Usage,
 } from "../types.js";
 import { formatPRMarkdown, formatCommitMarkdown, parseRepoFromUrl, jarvisConceptNodeKey } from "./utils.js";
-import { addUsage, normalizeUsage } from "../../../aieo/src/usage.js";
+import { addUsage, normalizeUsage } from "aieo";
 
 const Data_Bank = "Data_Bank";
 

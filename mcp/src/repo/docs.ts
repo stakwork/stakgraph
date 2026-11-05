@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { db } from "../graph/neo4j.js";
 import { generateText } from "ai";
-import { addUsage, emptyUsage, getProviderOptions, normalizeUsage, resolveLLMConfig, withLegacyUsage } from "../aieo/src/index.js";
+import { addUsage, emptyUsage, getProviderOptions, normalizeUsage, resolveLLMConfig, withLegacyUsage } from "aieo";
 
 export async function learn_docs_agent(req: Request, res: Response) {
   const repoUrl = req.query.repo_url as string;

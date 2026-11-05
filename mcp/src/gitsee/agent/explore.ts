@@ -4,7 +4,7 @@ import {
   normalizeUsage,
   resolveLLMConfig,
   type AiUsageWithLegacy,
-} from "../../aieo/src/index.js";
+} from "aieo";
 import * as prompts from "./prompts/index.js";
 import { z } from "zod";
 import { getRepoMap, getFileSummary, fulltextSearch } from "./tools.js";

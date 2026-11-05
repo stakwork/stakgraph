@@ -29,7 +29,7 @@ import {
   EXTERNAL_TURN_TYPES,
   type ExternalTurnInput,
 } from "../repo/turns.js";
-import { getProviderForModel } from "../aieo/src/provider.js";
+import { getProviderForModel } from "aieo";
 
 /** Turn-id label used when the caller names none and the chain is empty. */
 const DEFAULT_AGENT = "agent";

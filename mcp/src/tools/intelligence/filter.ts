@@ -2,7 +2,7 @@ import {
   AiUsageWithLegacy,
   callModel,
   resolveLLMConfig,
-} from "../../aieo/src/index.js";
+} from "aieo";
 
 function FILTER_PROMPT(originalPrompt: string, candidatePairs: string) {
   return `

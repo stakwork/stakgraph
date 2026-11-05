@@ -1,5 +1,5 @@
 import { ToolLoopAgent, ModelMessage } from "ai";
-import { addUsage, ModelName, getModelDetails, getProviderOptions, normalizeUsage } from "../aieo/src/index.js";
+import { addUsage, ModelName, getModelDetails, getProviderOptions, normalizeUsage } from "aieo";
 import { get_log_tools } from "./tools.js";
 import { ContextResult } from "../tools/types.js";
 import { redactSecrets, redactSecretsDeep } from "./redact.js";

@@ -13,7 +13,7 @@ import {
   getModelDetails,
   getProviderOptions,
   ModelName,
-} from "../aieo/src/index.js";
+} from "aieo";
 import {
   createSession,
   appendSessionEnd,

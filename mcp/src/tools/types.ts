@@ -1,4 +1,4 @@
-import { AiUsageWithLegacy } from "../aieo/src/usage.js";
+import { AiUsageWithLegacy } from "aieo";
 import type { SessionReflection } from "../repo/session.js";
 import type { LandChangeResult } from "../repo/git_pr.js";
 
