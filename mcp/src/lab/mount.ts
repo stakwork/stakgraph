@@ -350,11 +350,43 @@ export function mountLab(app: Express): void {
 
 const LAB_AUDIO_STREAM = "/lab/audio/stream";
 const LAB_ROOMS = "/lab/rooms";
+const LAB_CHANNELS = "/lab/channels";
 
 const rejectUpgrade = (socket: Duplex, status: string) => {
   socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
   socket.destroy();
 };
+
+/** Strut's own logger redacts `?key=` / `?ticket=`; mcp's must as well: a
+ *  channel ticket is a credential, and an error may carry the URL. */
+export const redactTicket = (v: unknown): unknown => {
+  const scrub = (t: string) => t.replace(/ticket=[^&\s]*/g, "ticket=[redacted]");
+  if (typeof v === "string") return scrub(v);
+  // The stack keeps where it failed (a lab boot with Neo4j down); it starts
+  // with the message, so it is scrubbed too.
+  if (v instanceof Error) return scrub(v.stack ?? `${v.name}: ${v.message}`);
+  return v;
+};
+
+/** A socket from the lab credential (stashed as `labAuth` does for HTTP) to
+ *  strut's `upgrade`, which decides it; 404 if strut takes no such path. */
+function handToStrut(
+  what: string,
+  req: IncomingMessage,
+  socket: Duplex,
+  head: Buffer,
+  strut: () => Promise<Pick<Strut, "upgrade">>,
+): void {
+  strut()
+    .then((s) => {
+      if (socket.destroyed) return;
+      if (!s.upgrade(req, socket, head, { basePath: "/lab" })) rejectUpgrade(socket, "404 Not Found");
+    })
+    .catch((e) => {
+      console.error(`[lab] ${what} upgrade failed:`, redactTicket(e));
+      rejectUpgrade(socket, "500 Internal Server Error");
+    });
+}
 
 /**
  * A ROOM over `/lab/rooms` (strut `src/rooms.ts`, plans/chained-orchestrators.md
@@ -378,21 +410,43 @@ export function upgradeLabRoom(
   if (!granted) return rejectUpgrade(socket, "401 Unauthorized");
   stashLabActor(req, granted.actor);
   stashLabScope(req, granted.scope);
-  strut()
-    .then((s) => {
-      if (socket.destroyed) return;
-      if (!s.upgrade(req, socket, head, { basePath: "/lab" })) rejectUpgrade(socket, "404 Not Found");
-    })
-    .catch((e) => {
-      console.error("[lab] room upgrade failed:", e);
-      rejectUpgrade(socket, "500 Internal Server Error");
-    });
+  handToStrut("room", req, socket, head, strut);
+}
+
+/**
+ * An app's CHANNELS over `/lab/channels` (strut plans/app-channels.md,
+ * specs/API.md §14.9). A browser host opens it straight to the swarm with a
+ * TICKET (`?ticket=`, minted by `POST /lab/apps/:name/channel-ticket` through
+ * `labAuth`) and no lab credential: the ticket is the credential, and strut
+ * verifies it (401 when forged or expired). So: a lab credential is applied
+ * and stashed as for the room (the peer relay's shape — a person's `lab:peer`
+ * token plus `?app=<name>@<version>`); no credential but a non-empty ticket
+ * goes to strut as it is; neither is a 401 here. Never an unauthenticated
+ * socket without a ticket. The ticket is never logged.
+ */
+export function upgradeLabChannel(
+  req: IncomingMessage,
+  socket: Duplex,
+  head: Buffer,
+  strut: () => Promise<Pick<Strut, "upgrade">> = labStrut,
+): void {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const header = (name: string) => req.headers[name.toLowerCase()] as string | undefined;
+  const granted = labAuthorized({ header, key: url.searchParams.get("key") });
+  if (granted) {
+    stashLabActor(req, granted.actor);
+    stashLabScope(req, granted.scope);
+  } else if (!url.searchParams.get("ticket")) {
+    return rejectUpgrade(socket, "401 Unauthorized");
+  }
+  handToStrut("channel", req, socket, head, strut);
 }
 
 /**
  * The lab's WebSockets. A WebSocket upgrade never enters Express, so the
  * bridge above can't carry it: hook the Node server's `upgrade` event.
- * `/lab/rooms` → `upgradeLabRoom`. Dictation over `/lab/audio/stream`
+ * `/lab/rooms` → `upgradeLabRoom`; `/lab/channels` → `upgradeLabChannel`
+ * (a ticket in place of a lab credential). Dictation over `/lab/audio/stream`
  * (strut `src/audio/ws.ts`): apply the lab credential (browsers resend
  * cached Basic auth on same-origin handshakes, so the UI's one-time prompt
  * covers it), then hand the socket to strut. Built lazily like the bridge —
@@ -412,6 +466,7 @@ export function attachLabSockets(server: Server): void {
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (url.pathname === LAB_ROOMS) return upgradeLabRoom(req, socket, head);
+    if (url.pathname === LAB_CHANNELS) return upgradeLabChannel(req, socket, head);
     if (url.pathname !== LAB_AUDIO_STREAM) return reject(socket, "404 Not Found");
     const header = (name: string) => req.headers[name.toLowerCase()] as string | undefined;
     const granted = labAuthorized({ header, key: url.searchParams.get("key") });
