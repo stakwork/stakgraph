@@ -57,7 +57,7 @@ all_pass, pass_rate, judge_model, criteria_results }`, failure
 mcp/src/lab/wfbench/
   seed.ts                          # seedWfbenchSteps / seedWfbenchWorkflows (SEED_OPTS)
   smoke.ts                         # offline: seed, discover, validate YAML, drive every pure step,
-                                   #   check graph payloads against JARVIS_ONTOLOGY
+                                   #   check graph payloads against wfbench/ontology.ts
   steps/                           # all pure — no services, LLM, or graph
     normalize-task.ts              # Hive/58313 payload → canonical task (hard-fails early)
     build-roster.ts                # EvalSet / EvalRequirement×N / EvalTrigger payloads (58313 ids)

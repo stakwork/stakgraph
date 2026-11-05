@@ -218,6 +218,19 @@ describe("anchorConcepts (live)", { skip: !URI }, () => {
     dataDir = await mkdtemp(join(tmpdir(), "concept-anchor-data-"));
     dir = await mkdtemp(join(tmpdir(), "concept-anchor-"));
     ws = (await graphWorkspaceFromEnv(liveEnv(), { dataDir })).workspace;
+    // The jarvis type the anchor writes, and its edge, as a swarm's jarvis
+    // declares them: strut seeds no Hive types (Concept is strut's own). A
+    // graph that already holds them keeps them as they are.
+    await g().bolt.run(
+      `MATCH (t:Schema {type: "Thing"})
+       MERGE (s:Schema {type: "HiveWorkspace"})
+       ON CREATE SET s.parent = "Thing", s.domain = "Hive", s.node_key = "hiveworkspace-workspace_id", s.index = ["name", "description", "mission"],
+                     s.title_key = "name", s.description_key = "description", s.ref_id = "schema-hiveworkspace-test",
+                     s.workspace_id = "string", s.name = "string", s.description = "?string", s.mission = "?string", s.slug = "?string"
+       MERGE (s)-[c:CHILD_OF]->(t) ON CREATE SET c.ref_id = "schema-hiveworkspace-test-child-of"`,
+    );
+    await g().schemas.createEdgeSchema("HiveWorkspace", "PROCESS", "Concept");
+    g().schemas.invalidate();
     await writeFile(join(dir, `${root}.md`), "---\ndescription: The root.\n---\nRoot docs.\n");
     await writeFile(join(dir, `${kid}.md`), `---\ndescription: A kid.\nparent: ${root}\n---\nKid docs.\n`);
     await writeFile(join(dir, `${theirs}.md`), "---\ndescription: Shipped, but a person's.\n---\nTheirs.\n");

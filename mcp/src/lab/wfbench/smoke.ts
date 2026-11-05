@@ -5,30 +5,30 @@
  * agent gets via meta/validate-workflow), then drives every pure step with
  * fixtures and asserts the graph payloads match stakwork 58313 / 58312's id
  * conventions and only use attributes the jarvis ontology declares (strut's
- * graph backend rejects undeclared ones).
+ * graph backend rejects undeclared ones) — the excerpt in ./ontology.ts.
  *
  *   npx tsx src/lab/wfbench/smoke.ts
  */
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { WorkspaceManager, buildRegistry, createStrut, JARVIS_ONTOLOGY, type StepContext } from "strut";
+import { WorkspaceManager, buildRegistry, createStrut, type StepContext } from "strut";
+import { WFBENCH_ONTOLOGY } from "./ontology.js";
 import { seedWfbenchSteps, seedWfbenchWorkflows } from "./seed.js";
 import { seedEvalSteps } from "../eval/seed.js";
 import { seedArtifactSteps } from "../artifacts/seed.js";
 
 const declared = (type: string): Set<string> => {
-  const schema = JARVIS_ONTOLOGY.schemas.find((s) => s["type"] === type);
-  assert.ok(schema, `ontology has no ${type}`);
-  const meta = new Set(["type", "ref_id", "node_key", "parent", "domain", "type_description", "index", "icon", "primary_color", "secondary_color", "shape", "description_key", "title_key", "paid_properties", "is_system"]);
-  return new Set(Object.keys(schema!).filter((k) => !meta.has(k)));
+  const attributes = WFBENCH_ONTOLOGY.types[type];
+  assert.ok(attributes, `ontology has no ${type}`);
+  return new Set(attributes);
 };
 const assertDeclared = (type: string, data: Record<string, unknown>) => {
   const ok = declared(type);
   for (const k of Object.keys(data)) assert.ok(ok.has(k), `${type}.${k} is not declared on the ontology`);
 };
 const edgeAllowed = (source: string, edge: string, target: string) =>
-  JARVIS_ONTOLOGY.edge_schemas.some((e) => e.source === source && e.edge === edge && e.target === target);
+  WFBENCH_ONTOLOGY.edges.some(([s, e, t]) => s === source && e === edge && t === target);
 
 async function main() {
   const dir = mkdtempSync(join(process.cwd(), ".wfbench-smoke-"));

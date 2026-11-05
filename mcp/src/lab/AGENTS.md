@@ -444,7 +444,7 @@ output IS that body (+ diagnostics), fixing 58313's set_output divergence.
   graph; no stakwork credentials.
 - Smoke (offline — seeds, discovers, static-validates both workflows
   through the authoring capability, drives every pure step, and checks the
-  graph payloads against `JARVIS_ONTOLOGY`): `npx tsx src/lab/wfbench/smoke.ts`.
+  graph payloads against `wfbench/ontology.ts`, its excerpt of the jarvis types it writes): `npx tsx src/lab/wfbench/smoke.ts`.
 
 ### `code/` — code changes as strut workflows (hive's `propose_code_change` + its approval)
 
