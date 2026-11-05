@@ -1,18 +1,36 @@
 name: Build and Publish Gateway Docker Image
 
+# One image for linux/amd64 and linux/arm64, published as a manifest list
+# under the release tag and `latest`.
+#
+# Each platform builds natively on its own runner rather than under QEMU:
+# bifrost-http and the stakgraph plugin .so are CGO builds (Go's plugin
+# loader needs both from the same toolchain on the same platform, which a
+# single-platform build gives us for free), and an emulated CGO build is
+# many times slower. The merge job then joins the two images into one tag.
+# Same shape as publish-mcp.yml.
+
 on:
   release:
     types: [published]
 
+env:
+  IMAGE: ghcr.io/stakwork/stakgraph-gateway
+
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-arm64
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     permissions:
       contents: read
       packages: write
-      id-token: write
-      attestations: write
 
     steps:
       - name: Checkout code
@@ -34,30 +52,61 @@ jobs:
         env:
           DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest
         with:
-          images: ghcr.io/stakwork/stakgraph-gateway
+          images: ${{ env.IMAGE }}
 
-      - name: Build and push Docker image
-        id: build
+      # Pushed under a per-platform tag (v0.4.x-amd64, v0.4.x-arm64) that
+      # the merge job joins; pull the plain tag, not these.
+      - name: Build and push Docker image (${{ matrix.arch }})
         uses: docker/build-push-action@v5
         with:
           context: gateway
           file: gateway/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           push: true
-          cache-from: type=registry,ref=ghcr.io/stakwork/stakgraph-gateway:buildcache
-          cache-to: type=registry,ref=ghcr.io/stakwork/stakgraph-gateway:buildcache,mode=max
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }},mode=max
           provenance: false
           sbom: false
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
-          tags: |
-            ghcr.io/stakwork/stakgraph-gateway:${{ github.ref_name }}
-            ghcr.io/stakwork/stakgraph-gateway:latest
+          tags: ${{ env.IMAGE }}:${{ github.ref_name }}-${{ matrix.arch }}
+
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifest
+        run: |
+          docker buildx imagetools create \
+            --annotation "index:org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --annotation "index:org.opencontainers.image.revision=${{ github.sha }}" \
+            -t ${{ env.IMAGE }}:${{ github.ref_name }} \
+            -t ${{ env.IMAGE }}:latest \
+            ${{ env.IMAGE }}:${{ github.ref_name }}-amd64 \
+            ${{ env.IMAGE }}:${{ github.ref_name }}-arm64
+
+      - name: Resolve manifest digest
+        id: digest
+        run: |
+          echo "digest=$(docker buildx imagetools inspect ${{ env.IMAGE }}:${{ github.ref_name }} --format '{{.Manifest.Digest}}')" >> "$GITHUB_OUTPUT"
 
       # Verify with: gh attestation verify oci://ghcr.io/stakwork/stakgraph-gateway@sha256:<digest> --owner stakwork
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-name: ghcr.io/stakwork/stakgraph-gateway
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.digest.outputs.digest }}
           push-to-registry: true
