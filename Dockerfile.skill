@@ -17,6 +17,11 @@ COPY skill/Cargo.toml skill/Cargo.toml
 RUN cargo build --release --manifest-path skill/Cargo.toml
 
 # lsp final image
+# Security note: the base image is Debian 12 (bookworm) and ships libglib2.0-0 2.74.6-2+deb12u9,
+# flagged by CVE-2026-58016 (out-of-bounds read in GDBus introspection XML parsing, denial of service).
+# Debian has not shipped a bookworm fix (only trixie/sid have one). This service does not parse
+# untrusted D-Bus XML, so the exposure is accepted until a fix lands; then rebuild the base image
+# (lsp/Dockerfile) and add an apt --only-upgrade libglib2.0-0 layer here if needed.
 FROM sphinxlightning/stakgraph-lsp:latest
 
 COPY --from=builder /app/skill/target/release/stakgraph-skill /root
