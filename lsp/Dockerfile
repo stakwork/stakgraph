@@ -31,6 +31,7 @@ RUN apt-get update && apt-get install -y \
     g++ \
     sed \
     bash \
+    && apt-get install -y --only-upgrade libbrotli1 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 # Detect architecture and set JAVA_HOME accordingly
