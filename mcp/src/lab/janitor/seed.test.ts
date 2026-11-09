@@ -44,7 +44,7 @@ describe("the lab's Concept files", () => {
   it("hang under strut's pages: Janitor under Workflow Builder, Benchmark App under App, the job's kinds under Job, and no mandate", async () => {
     const c = await read(JANITOR_CONCEPTS, "Janitor.md");
     assert.equal(c.name, "Janitor");
-    assert.equal(c.parent, "Workflow Builder");
+    assert.deepEqual(c.parents, ["Workflow Builder"]);
     assert.match(c.stamp, /^lab\/janitor\/concepts\/Janitor\.md@/, "the file did not move: its nodes stay ours");
     assert.equal(c.description, "Automated agents for cleaning up code, concept trees, or other data.");
     assert.ok(c.docs!.startsWith(c.description!));
@@ -55,7 +55,7 @@ describe("the lab's Concept files", () => {
     // workflows), the answers kept from the producer, and the run's headline fields a host draws.
     const ba = await read(EVAL_CONCEPTS, "Benchmark App.md");
     assert.equal(ba.name, "Benchmark App");
-    assert.equal(ba.parent, "App");
+    assert.deepEqual(ba.parents, ["App"]);
     assert.match(ba.stamp, /^lab\/eval\/concepts\/Benchmark App\.md@[0-9a-f]{12}$/);
     assert.ok(ba.docs!.startsWith(ba.description!));
     for (const needle of [/Catalogue/, /`useStep`/, /`useLaunch\(run\)` with the task id as the `key`/, /NEVER the answer/, /`sealed: true`/, /`score`/, /`officialScore`/, /`foreach`/, /namespace/, /contest/]) assert.match(ba.docs!, needle);
@@ -63,14 +63,14 @@ describe("the lab's Concept files", () => {
 
     // Plan Mode: a way of working under Job — one HTML file, the technical part collapsed, ask before going on.
     const pm = await read(JOB_CONCEPTS, "Plan Mode.md");
-    assert.equal(pm.parent, "Job");
+    assert.deepEqual(pm.parents, ["Job"]);
     assert.ok(pm.docs!.startsWith(pm.description!));
     for (const needle of [/plan\.html/, /<details>/, /`ask`/, /scripts never run/]) assert.match(pm.docs!, needle);
     // Explore: a way of working under Job — explore here or on a peer by @slug, and keep what was found as a note;
     // another job's note used as it is is reported by its link, never named only in the reply.
     const ex = await read(JOB_CONCEPTS, "Explore.md");
     assert.equal(ex.name, "Explore");
-    assert.equal(ex.parent, "Job");
+    assert.deepEqual(ex.parents, ["Job"]);
     assert.ok(ex.docs!.startsWith(ex.description!));
     for (const needle of [/meta\/run-workflow/, /strut\/run-workflow/, /"explore"/, /notes\/<topic>\.md/, /@<slug>/, /kind: "markdown"/, /`url` job\/get gave it/]) assert.match(ex.docs!, needle);
     // Verify: a way of working under Job — one claim per change, a check that uses the deliverable as its user
@@ -78,7 +78,7 @@ describe("the lab's Concept files", () => {
     // agent's own diff, verify before done (strut plans/job-claims.md); a person's rejection stands on the turn they looked at.
     const vf = await read(JOB_CONCEPTS, "Verify.md");
     assert.equal(vf.name, "Verify");
-    assert.equal(vf.parent, "Job");
+    assert.deepEqual(vf.parents, ["Job"]);
     assert.ok(vf.docs!.startsWith(vf.description!));
     for (const needle of [/meta\/add-claim/, /kind: "job"/, /meta\/add-check/, /ONE claim for a change/, /browser\/verify/, /\{\{ input\.urls\.pod \}\}/, /screenshot/, /http\/verify/, /cwd: "\{\{ input\.dir \}\}"/, /pod\/run-tests/, /external check/, /Never a check that reads your own diff/, /meta\/verify-job/, /`refuted`/, /`claims` on `job\/get`/, /\[claim-event\]/, /does not\s+lift it/]) {
       assert.match(vf.docs!, needle);
@@ -86,7 +86,7 @@ describe("the lab's Concept files", () => {
     // Onboarding: a kind under Job — draft with identify-services, write it to the pool without waiting, run it in the
     // pod the job holds, check it, fix it there; the fresh-pod check only after a fix made by hand (strut plans/onboarding.md).
     const ob = await read(JOB_CONCEPTS, "Onboarding.md");
-    assert.equal(ob.parent, "Job");
+    assert.deepEqual(ob.parents, ["Job"]);
     assert.ok(ob.docs!.startsWith(ob.description!));
     for (const needle of [/pod\/claim \{ workspace \}/, /"identify-services"/, /pod\/config \{ workspace, podId \}/, /npx -y hell0-w0rld/, /wait: false/, /pod\/config-apply/, /Do not ask first/, /Any\s+other pool config is not a first setup/, /meta\/verify-job/, /fresh: true/, /`Pod Config`/]) {
       assert.match(ob.docs!, needle);
@@ -97,7 +97,7 @@ describe("the lab's Concept files", () => {
     // standalone question with its window, a follow-up on a session of the job's own, what it found kept as a note.
     const lg = await read(LOGS_CONCEPTS, "Logs.md");
     assert.equal(lg.name, "Logs");
-    assert.equal(lg.parent, "Job");
+    assert.deepEqual(lg.parents, ["Job"]);
     assert.match(lg.stamp, /^lab\/logs\/concepts\/Logs\.md@[0-9a-f]{12}$/);
     assert.ok(lg.docs!.startsWith(lg.description!));
     for (const needle of [/meta\/run-workflow \{ name: "logs", input: \{ prompt, session \} \}/, /strut\/run-workflow \{ peer: "<slug>", workflow: "logs"/, /@<slug>/, /\{ answer, cost \}/, /time window/, /same `session`/, /<your job id>\/logs-<topic>/, /notes\/logs-<topic>\.md/, /id: "notes-logs-<topic>", kind: "markdown"/, /`url` job\/get gave it/, /job\/list \{ q \}/]) {
@@ -109,7 +109,7 @@ describe("the lab's Concept files", () => {
     // Code Change: the kind page the job agent follows to code-change-pr (lab/code).
     const cc = await read(CODE_CONCEPTS, "Code Change.md");
     assert.equal(cc.name, "Code Change");
-    assert.equal(cc.parent, "Job");
+    assert.deepEqual(cc.parents, ["Job"]);
     assert.match(cc.stamp, /^lab\/code\/concepts\/Code Change\.md@[0-9a-f]{12}$/);
     assert.equal(cc.description, "A change to a repository's source code, delivered as a pull request.");
     assert.ok(cc.docs!.startsWith(cc.description!));
@@ -119,11 +119,11 @@ describe("the lab's Concept files", () => {
 
     // Pod Config: under Pod, how a pod is made to run the app, and how a fix there reaches every pod.
     const pod = await read(POD_CONCEPTS, "Pod.md");
-    assert.equal(pod.parent, "Code Change");
+    assert.deepEqual(pod.parents, ["Code Change"]);
     assert.match(pod.docs!, /child `Pod Config`/);
     const pc = await read(POD_CONCEPTS, "Pod Config.md");
     assert.equal(pc.name, "Pod Config");
-    assert.equal(pc.parent, "Pod");
+    assert.deepEqual(pc.parents, ["Pod"]);
     assert.match(pc.stamp, /^lab\/pods\/concepts\/Pod Config\.md@[0-9a-f]{12}$/);
     assert.ok(pc.docs!.startsWith(pc.description!));
     // Look first, the in-pod knowledge, ask before promoting, verify on a fresh pod, report what a later job finds.
@@ -136,7 +136,7 @@ describe("the lab's Concept files", () => {
     assert.deepEqual(await readdir(JANITOR_CONCEPTS.dir), ["Janitor.md"]);
     assert.deepEqual(JANITOR_CONCEPTS.retired, ["Overfit Concept Janitor.md"]);
     const fixture = await read(JANITOR_FIXTURES, "Overfit Concept Janitor.md");
-    assert.equal(fixture.parent, "Janitor");
+    assert.deepEqual(fixture.parents, ["Janitor"]);
     assert.match(fixture.stamp, /^lab\/janitor\/fixtures\//, "a fixture never carries a seed's stamp");
   });
 
