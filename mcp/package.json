@@ -58,7 +58,7 @@
     "@openrouter/ai-sdk-provider": "3.0.0",
     "@playwright/test": "1.58.1",
     "ai": "7.0.126",
-    "aieo": "^0.2.9",
+    "aieo": "^0.3.1",
     "archy": "1.0.0",
     "axios": "1.13.4",
     "commander": "14.0.3",
@@ -81,7 +81,7 @@
     "redis": "^6.2.1",
     "sharp": "0.35.5",
     "simple-git": "3.30.0",
-    "strut": "git+https://github.com/stakwork/strut.git#20e61f6216210b025a35f8799c3e9eb311750bc6",
+    "strut": "git+https://github.com/stakwork/strut.git#1ba36b7c4637021f2d9c7c172e470ec510065a1b",
     "tsx": "4.21.0",
     "uuid": "11.1.0",
     "zod": "4.6.5"
