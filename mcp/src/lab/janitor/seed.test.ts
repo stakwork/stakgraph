@@ -140,10 +140,10 @@ describe("the lab's Concept files", () => {
     assert.match(fixture.stamp, /^lab\/janitor\/fixtures\//, "a fixture never carries a seed's stamp");
   });
 
-  it("ship no page under one of strut's names: strut owns Workflow Builder, Job and App, and the Workflow Build and Job App it retired", async () => {
+  it("ship no page under one of strut's names: strut owns Workflow Builder, Job, App and Game, and the Workflow Build and Job App it retired", async () => {
     // A page is a `.md` file; `personal/` is another set strut seeds only for a personal graph.
     const shipped = (await readdir(STRUT_CONCEPTS.dir)).filter((f) => f.endsWith(".md"));
-    assert.deepEqual(shipped.sort(), ["App.md", "Job.md", "Workflow Builder.md"]);
+    assert.deepEqual(shipped.sort(), ["App.md", "Game.md", "Job.md", "Workflow Builder.md"]);
     assert.deepEqual(STRUT_CONCEPTS.retired, ["Workflow Build.md", "Job App.md"]);
     const strut = [...shipped, ...STRUT_CONCEPTS.retired];
     for (const set of LAB_CONCEPTS) for (const file of await readdir(set.dir)) assert.ok(!strut.includes(file), `${set.dir}/${file}`);

@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 import { getRequestListener } from "@hono/node-server";
-import { createAudioUpgradeHandler, scrubProcessEnv, type Strut } from "strut";
+import { createAudioUpgradeHandler, scrubProcessEnv, PUBLIC_PATH, PUBLIC_POST, type Strut } from "strut";
 import { createLabStrut } from "./createLabStrut.js";
 import { env, freezeEnv } from "../env.js";
 import { stashLabActor, stashLabScope, type LabScope } from "./actor.js";
@@ -232,8 +232,10 @@ function labAuthorized(req: LabCredentials): LabGrant | undefined {
  * of strut's own read tokens as `?t=` — a FILE TOKEN on a run's artifacts
  * or a job's files, a CATALOG TOKEN on the published catalog and its
  * archives (`isTokenRead`) — strut judges that one; and a read of strut's
- * PUBLIC VIEW, or a public app's call (`isPublicViewRead`) — strut serves
- * that from its public-view record alone.
+ * PUBLIC VIEW, or one of strut's public POSTs — a public app's call, a
+ * public run's launch or cancel, a runnable tool's call, credit bought or
+ * claimed (`isPublicViewRead`) — strut serves that from its public-view
+ * record alone.
  */
 export function labAuth(req: Request, res: Response, next: NextFunction): void {
   if (isUiAsset(req) || isTokenRead(req) || isPublicViewRead(req)) return next();
@@ -312,12 +314,25 @@ function isTokenRead(req: Request): boolean {
 /**
  * strut's PUBLIC VIEW (strut plans/public-surface.md §3, §5, §10; specs/
  * API.md §17): a GET/HEAD under `/public` — and the OPTIONS of a browser's
- * preflight — or a public app's door, `POST /public/mcp`. Open to anyone:
- * strut answers every `/public` route from its public-view record alone,
- * whatever its gate's mode (the lab strut is unkeyed behind this gate), and
- * anything not on the record is a 404 — with nothing on it, nothing is
- * served. The door serves `step_run` alone, for the VISITOR identity a
- * public app's document carries: reads only, with no actor, nothing kept.
+ * preflight — or one of strut's public POSTs. Open to anyone: strut answers
+ * every `/public` route from its public-view record alone, whatever its
+ * gate's mode (the lab strut is unkeyed behind this gate), and anything not
+ * on the record is a 404 — with nothing on it, nothing is served.
+ *
+ * The POSTs are exactly what strut's own `PUBLIC_POST` matches (strut
+ * src/public-routes.ts, exported for a gate like this one), so the gate
+ * follows strut as it grows: a public app's door (`/public/mcp`, `step_run`
+ * alone for the VISITOR identity its document carries), a public run's
+ * launch and its launcher's cancel (`/public/workflows/:name/run`,
+ * `/public/workflows/:name/runs/:id/cancel`), a runnable tool's call
+ * (`/public/steps/:type/run`), and credit bought and claimed
+ * (`/public/credit`, `/public/credit/claim`) — strut plans/paid-runs.md
+ * §3, §4, §6. What may run, and at what price, is the owner's: strut
+ * answers 404 for an item nobody made runnable and 402 for an unpaid one.
+ *
+ * And `GET /llms.txt` (plans/paid-runs.md §10, llmstxt.org): what can be run
+ * here and its price, nothing `GET /public` does not already show — a 404
+ * when nothing is public.
  *
  * And the VISITOR'S PAGE itself: a GET/HEAD of strut's UI shell (`/` or
  * `/index.html`, the same file strut serves anyone without a credential —
@@ -334,10 +349,12 @@ function isTokenRead(req: Request): boolean {
 function isPublicViewRead(req: Request): boolean {
   try {
     const { pathname, searchParams } = new URL(`http://localhost${req.url}`);
-    if (req.method === "POST") return pathname === "/public/mcp";
+    if (req.method === "POST") return PUBLIC_POST.test(pathname);
     if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS") return false;
-    if (/^\/public(?:\/|$)/.test(pathname)) return true;
-    return req.method !== "OPTIONS" && (pathname === "/" || pathname === "/index.html") && searchParams.get("public") === "1";
+    if (PUBLIC_PATH.test(pathname)) return true;
+    if (req.method === "OPTIONS") return false;
+    if (pathname === "/llms.txt") return true;
+    return (pathname === "/" || pathname === "/index.html") && searchParams.get("public") === "1";
   } catch {
     return false;
   }
