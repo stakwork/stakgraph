@@ -4,6 +4,7 @@
 // "should the dashboard poll every 30s" stays a one-line edit.
 
 import {
+  keepPreviousData,
   queryOptions,
   useMutation,
   useQueries,
@@ -759,13 +760,20 @@ export function useTlogStatus() {
 // Run detail is historical — no polling. The user explicitly hits
 // the page; refreshing the data is a manual page reload.
 
-export function useRunDetail(runID: string | undefined) {
+export const RUN_CALLS_PAGE_SIZE = 50;
+
+export function useRunDetail(runID: string | undefined, offset = 0) {
   return useQuery({
-    queryKey: ["runs", runID],
+    queryKey: ["runs", runID, offset],
     queryFn: () =>
-      apiFetch<RunDetailResponse>(`/runs/${encodeURIComponent(runID!)}`),
+      apiFetch<RunDetailResponse>(
+        `/runs/${encodeURIComponent(runID!)}?limit=${RUN_CALLS_PAGE_SIZE}&offset=${offset}`
+      ),
     enabled: !!runID,
     staleTime: Infinity,
+    // Keep the current page on screen while the next one loads, so paging
+    // the call log doesn't collapse the table to a "Loading…" flash.
+    placeholderData: keepPreviousData,
   });
 }
 
