@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"encoding/json"
 	"math"
+	"os"
 	"testing"
 
 	"github.com/stakwork/stakgraph/gateway/internal/pricing"
@@ -202,5 +204,66 @@ func TestResolvePrice_PrecedenceAndKeys(t *testing.T) {
 	got, ok := PriceCall("", "gpt-5.2", pricing.Usage{Prompt: 1_000_000, Completion: 1_000_000})
 	if !ok || got != 11 {
 		t.Fatalf("PriceCall = %v %v, want 11", got, ok)
+	}
+}
+
+// realPluginConfig loads the stakgraph-gateway plugin's config block
+// from the data/config.json baked into the image.
+func realPluginConfig(t *testing.T) any {
+	t.Helper()
+	buf, err := os.ReadFile("../../data/config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Plugins []struct {
+			Name   string `json:"name"`
+			Config any    `json:"config"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal(buf, &file); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range file.Plugins {
+		if p.Name == "stakgraph-gateway" {
+			return p.Config
+		}
+	}
+	t.Fatal("stakgraph-gateway plugin not found in data/config.json")
+	return nil
+}
+
+func TestShippedConfig_OperatorRows(t *testing.T) {
+	if err := Init(realPluginConfig(t)); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { SetConfigForTest(Config{}) })
+
+	// Free row: priced at $0, not missing.
+	cost, ok := PriceCall("tokenfactory", "glm-5.3", pricing.Usage{Prompt: 1e6, Completion: 1e6, CacheRead: 1000})
+	if !ok || cost != 0 {
+		t.Fatalf("tokenfactory/glm-5.3 = (%v, %v), want (0, true)", cost, ok)
+	}
+
+	cost, ok = PriceCall("tokenfactory", "glm-5.3-flash", pricing.Usage{Prompt: 1e6, Completion: 1e6})
+	if !ok || math.Abs(cost-0.65) > 1e-9 {
+		t.Fatalf("tokenfactory/glm-5.3-flash = (%v, %v), want (0.65, true)", cost, ok)
+	}
+
+	res, ok := ResolvePrice("maple", "gemma4-31b")
+	if !ok || res.Source != SourceConfig || res.Key != "maple/gemma4-31b" || res.Price.InputPerMTok != 0.8 || res.Price.OutputPerMTok != 2.0 {
+		t.Fatalf("maple/gemma4-31b = (%+v, %v)", res, ok)
+	}
+
+	res, ok = ResolvePrice("numes", "z-ai/glm-5.3")
+	if !ok || res.Source != SourceConfig || res.Key != "numes/z-ai/glm-5.3" || res.Price != (pricing.Price{}) {
+		t.Fatalf("numes/z-ai/glm-5.3 = (%+v, %v), want zero config row", res, ok)
+	}
+
+	// Provider-prefixed rows never answer another provider's bare name.
+	for _, p := range []string{"zai", ""} {
+		if res, ok := ResolvePrice(p, "glm-5.3"); ok && res.Source == SourceConfig {
+			t.Fatalf("ResolvePrice(%q, glm-5.3) hit config row %q", p, res.Key)
+		}
 	}
 }
