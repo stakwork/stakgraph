@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import express from "express";
 import { getRequestListener } from "@hono/node-server";
-import { createStrut, MemoryRunStore, WorkspaceManager, type Strut } from "strut";
+import { createStrut, MemoryRunStore, PUBLIC_POST, WorkspaceManager, type Strut } from "strut";
 import { labAuth, retryable, upgradeLabChannel, upgradeLabRoom } from "./mount.js";
 import { labActorOf, resolveLabActor, resolveLabScope } from "./actor.js";
 import { mintToken, signApiToken, signEventsToken, verifyApiToken } from "../repo/events.js";
@@ -303,9 +303,9 @@ describe("labAuth", () => {
       assert.equal(res.status, 200, `${method} ${path}`);
       if (method !== "HEAD") assert.equal(JSON.parse(res.body).actor, null, `${method} ${path}`);
     }
-    // Reads only, under `/public` only, and the one POST — never the
-    // record itself (`/public-view`, a person's), never a path that
-    // resolves elsewhere.
+    // Reads only, under `/public` only, and strut's public POSTs (below) —
+    // never the record itself (`/public-view`, a person's), never a path
+    // that resolves elsewhere.
     for (const [path, method] of [
       ["/lab/public/../workflows", "GET"],
       ["/lab/public/%2e%2e/workflows", "GET"],
@@ -339,11 +339,95 @@ describe("labAuth", () => {
     }
   });
 
+  it("passes every POST strut's PUBLIC_POST matches, and no other, with no credential", async () => {
+    // One example per route strut opens to anyone (strut plans/paid-runs.md
+    // §3, §4, §6): a public app's door, buying credit and claiming it, a
+    // public launch and its cancel, a runnable tool's call — a step type
+    // may hold slashes.
+    const open = [
+      "/public/mcp",
+      "/public/credit",
+      "/public/credit/claim",
+      "/public/workflows/x/run",
+      "/public/workflows/x/runs/r-1/cancel",
+      "/public/steps/x/run",
+      "/public/steps/browser/open/run",
+    ];
+    for (const path of open) {
+      // The gate follows strut's matcher: a route strut renames fails here.
+      assert.ok(PUBLIC_POST.test(path), `strut's PUBLIC_POST no longer matches ${path}`);
+      const res = await get(port, `/lab${path}`, {}, "POST");
+      assert.equal(res.status, 200, `POST /lab${path}`);
+      const seen = JSON.parse(res.body);
+      assert.equal(seen.url, path, `POST /lab${path}`);
+      assert.equal(seen.actor, null, `POST /lab${path}`);
+      assert.equal(seen.scope, null, `POST /lab${path}`);
+    }
+    // And `llms.txt` (plans/paid-runs.md §10): what `GET /public` shows, as
+    // a page. Read only, at the root only.
+    for (const method of ["GET", "HEAD"]) {
+      assert.equal((await get(port, "/lab/llms.txt", {}, method)).status, 200, `${method} /lab/llms.txt`);
+    }
+    for (const [path, method] of [
+      // Look-alikes: one segment too many or too few, or a path that
+      // resolves out of `/public`.
+      ["/lab/public/workflows/x/run/extra", "POST"],
+      ["/lab/public/workflows/run", "POST"],
+      ["/lab/public/workflows/x/runs/r-1/cancel/x", "POST"],
+      ["/lab/public/workflows/x/runs/r-1", "POST"],
+      ["/lab/public/workflows/x/runs/cancel", "POST"],
+      ["/lab/public/steps/run", "POST"],
+      ["/lab/public/steps/x/run/x", "POST"],
+      ["/lab/public/credit/claim/x", "POST"],
+      ["/lab/public/credit/x", "POST"],
+      ["/lab/public/workflows/x/../../../workflows/x/run", "POST"],
+      ["/lab/public/%2e%2e/workflows/x/run", "POST"],
+      ["/lab/public/credit?x=/public/mcp", "PUT"],
+      ["/lab/public/workflows/x/run", "PUT"],
+      ["/lab/public/credit", "DELETE"],
+      // The private doors those mirror.
+      ["/lab/workflows/x/run", "POST"],
+      ["/lab/workflows/x/runs/r-1/cancel", "POST"],
+      ["/lab/steps/x/run", "POST"],
+      ["/lab/chat", "POST"],
+      ["/lab/mcp", "POST"],
+      ["/lab/public-view", "POST"],
+      // llms.txt by GET/HEAD at the root alone.
+      ["/lab/llms.txt", "POST"],
+      ["/lab/llms.txt", "OPTIONS"],
+      ["/lab/x/llms.txt", "GET"],
+      ["/lab/llms.txt/../workflows", "GET"],
+    ] as const) {
+      const res = await get(port, path, {}, method);
+      assert.equal(res.status, 401, `${method} ${path}`);
+    }
+  });
+
+  it("strut answers an anonymous launch, credit purchase and tool call itself, through the real bridge", async () => {
+    // Nothing is runnable or priced here: each is strut's own 404, never the
+    // gate's 401.
+    const json = { "content-type": "application/json" };
+    for (const [path, body] of [
+      ["/strut/public/credit", JSON.stringify({ usd: 1 })],
+      ["/strut/public/credit/claim", JSON.stringify({ macaroon: "x" })],
+      ["/strut/public/workflows/hello/run", JSON.stringify({ input: {} })],
+      ["/strut/public/workflows/hello/runs/r-1/cancel", ""],
+      ["/strut/public/steps/log/run", JSON.stringify({ config: { message: "hi" } })],
+    ] as const) {
+      const res = await get(port, path, json, "POST", body);
+      assert.equal(res.status, 404, `POST ${path}: ${res.body}`);
+      assert.notDeepEqual(JSON.parse(res.body), { error: "Unauthorized" }, `POST ${path}`);
+    }
+    // llms.txt with nothing public: strut's 404, not the gate's 401.
+    assert.equal((await get(port, "/strut/llms.txt")).status, 404);
+  });
+
   it("strut serves an anonymous visitor its public view alone, through the real bridge", async () => {
     // Nothing on the record: nothing served — `hello` is published, not public.
     const empty = await get(port, "/strut/public");
     assert.equal(empty.status, 200, empty.body);
-    assert.deepEqual(JSON.parse(empty.body), { workflows: [], steps: [], concepts: [], types: [], apps: [] });
+    // `runnable`: what anyone may run, and for how much (plans/paid-runs.md §2).
+    assert.deepEqual(JSON.parse(empty.body), { workflows: [], steps: [], concepts: [], types: [], apps: [], runnable: [] });
     assert.equal(empty.headers["access-control-allow-origin"], "*");
     assert.equal((await get(port, "/strut/public/workflows/hello")).status, 404);
     // An encoded slash is no separator, for the gate or for strut: it stays
