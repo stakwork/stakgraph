@@ -427,7 +427,17 @@ describe("labAuth", () => {
     const empty = await get(port, "/strut/public");
     assert.equal(empty.status, 200, empty.body);
     // `runnable`: what anyone may run, and for how much (plans/paid-runs.md §2).
-    assert.deepEqual(JSON.parse(empty.body), { workflows: [], steps: [], concepts: [], types: [], apps: [], runnable: [] });
+    // `host.remote`: its apps may be hosted by another strut's UI (strut
+    // specs/API.md §17.9).
+    assert.deepEqual(JSON.parse(empty.body), {
+      host: { remote: 1 },
+      workflows: [],
+      steps: [],
+      concepts: [],
+      types: [],
+      apps: [],
+      runnable: [],
+    });
     assert.equal(empty.headers["access-control-allow-origin"], "*");
     assert.equal((await get(port, "/strut/public/workflows/hello")).status, 404);
     // An encoded slash is no separator, for the gate or for strut: it stays
