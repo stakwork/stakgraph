@@ -141,6 +141,35 @@ func (p Price) cacheWrite1hRate() float64 {
 	return p.cacheWriteRate()
 }
 
+// Effective returns the rates Cost actually applies: the zero-rate
+// cache fallbacks resolved (read ⇒ input, write ⇒ input, 1h write ⇒
+// write). A client multiplying token counts by these needs no
+// fallback rules of its own.
+func (p Price) Effective() Price {
+	return Price{
+		InputPerMTok:        p.InputPerMTok,
+		OutputPerMTok:       p.OutputPerMTok,
+		CacheReadPerMTok:    p.cacheReadRate(),
+		CacheWritePerMTok:   p.cacheWriteRate(),
+		CacheWrite1hPerMTok: p.cacheWrite1hRate(),
+	}
+}
+
+// ModelLimits is a model's context limits from the datasheet; zero
+// means the datasheet does not say.
+type ModelLimits struct {
+	MaxInputTokens  int
+	MaxOutputTokens int
+}
+
+// CatalogStatus describes the catalog's state for diagnostics.
+type CatalogStatus struct {
+	Loaded    bool
+	Models    int
+	FetchedAt time.Time // zero when unknown
+	URL       string    // "" when fetching is disabled
+}
+
 func clamp(v, lo, hi int) int {
 	if hi < lo {
 		hi = lo
@@ -157,6 +186,9 @@ const (
 
 var (
 	table    atomic.Pointer[map[string]Price]
+	limits   atomic.Pointer[map[string]ModelLimits]
+	fetched  atomic.Pointer[time.Time]
+	sheetURL atomic.Pointer[string]
 	stopLoop context.CancelFunc
 
 	// retryBaseDelay is the first retry's backoff (doubling per
@@ -201,16 +233,60 @@ func Keys(provider, model string) []string {
 // when the catalog has no entry — the caller falls through to its
 // next price source.
 func Lookup(provider, model string) (Price, bool) {
+	_, p, ok := lookupKey(provider, model)
+	return p, ok
+}
+
+// LookupKey is Lookup that also returns the datasheet key that matched.
+func LookupKey(provider, model string) (string, Price, bool) {
+	return lookupKey(provider, model)
+}
+
+func lookupKey(provider, model string) (string, Price, bool) {
 	m := table.Load()
 	if m == nil {
-		return Price{}, false
+		return "", Price{}, false
 	}
 	for _, k := range Keys(provider, model) {
 		if p, ok := (*m)[k]; ok {
-			return p, true
+			return k, p, true
 		}
 	}
-	return Price{}, false
+	return "", Price{}, false
+}
+
+// Limits returns the datasheet's token limits for a model, trying
+// each Keys candidate in order. ok=false when the datasheet has no
+// limits for it.
+func Limits(provider, model string) (ModelLimits, bool) {
+	m := limits.Load()
+	if m == nil {
+		return ModelLimits{}, false
+	}
+	for _, k := range Keys(provider, model) {
+		if l, ok := (*m)[k]; ok {
+			return l, true
+		}
+	}
+	return ModelLimits{}, false
+}
+
+// Status reports whether the catalog holds a table, how big it is,
+// when it was last fetched (or, for a table loaded from the persisted
+// cache, that file's mtime) and the configured datasheet URL.
+func Status() CatalogStatus {
+	st := CatalogStatus{}
+	if m := table.Load(); m != nil {
+		st.Loaded = true
+		st.Models = len(*m)
+	}
+	if t := fetched.Load(); t != nil {
+		st.FetchedAt = *t
+	}
+	if u := sheetURL.Load(); u != nil {
+		st.URL = *u
+	}
+	return st
 }
 
 // Init loads the persisted datasheet (if any) and starts the
@@ -220,19 +296,27 @@ func Lookup(provider, model string) (Price, bool) {
 // Call Stop from plugin Cleanup.
 func Init() {
 	cachePath := env.PricingCachePath()
+	url := env.PricingURLValue()
+	if url != "" {
+		sheetURL.Store(&url)
+	}
 	if raw, err := os.ReadFile(cachePath); err != nil {
 		// First boot (or a fresh volume): make the empty-catalog
 		// window visible — until the first fetch lands, unpriced
 		// models accumulate at $0 unless model_pricing covers them.
 		pluginlog.Logf("pricing: no persisted datasheet at %s — catalog empty until first fetch", cachePath)
-	} else if m, err := parseDatasheet(raw); err != nil {
+	} else if m, l, err := parseDatasheetFull(raw); err != nil {
 		pluginlog.Warnf("pricing: persisted datasheet %s unparseable (%v) — waiting for fetch", cachePath, err)
 	} else {
 		table.Store(&m)
+		limits.Store(&l)
+		if fi, err := os.Stat(cachePath); err == nil {
+			mt := fi.ModTime()
+			fetched.Store(&mt)
+		}
 		pluginlog.Logf("pricing: loaded %d models from %s", len(m), cachePath)
 	}
 
-	url := env.PricingURLValue()
 	if url == "" {
 		pluginlog.Logf("pricing: fetch disabled (%s=off) — catalog is config/cache only", env.PricingURL)
 		return
@@ -283,12 +367,15 @@ func fetchAndSwap(ctx context.Context, url, cachePath string) {
 			lastErr = err
 			continue
 		}
-		m, err := parseDatasheet(raw)
+		m, l, err := parseDatasheetFull(raw)
 		if err != nil {
 			lastErr = err
 			continue
 		}
 		table.Store(&m)
+		limits.Store(&l)
+		now := time.Now()
+		fetched.Store(&now)
 		pluginlog.Logf("pricing: datasheet refreshed models=%d source=%s", len(m), url)
 		persist(cachePath, raw)
 		return
@@ -323,14 +410,24 @@ type datasheetEntry struct {
 	CacheReadPerToken    float64 `json:"cache_read_input_token_cost"`
 	CacheWritePerToken   float64 `json:"cache_creation_input_token_cost"`
 	CacheWrite1hPerToken float64 `json:"cache_creation_input_token_cost_above_1hr"`
+	MaxInputTokens       int     `json:"max_input_tokens"`
+	MaxOutputTokens      int     `json:"max_output_tokens"`
 }
 
 func parseDatasheet(raw []byte) (map[string]Price, error) {
+	m, _, err := parseDatasheetFull(raw)
+	return m, err
+}
+
+// parseDatasheetFull also returns the per-key token limits, kept in a
+// side map so Price and Cost are untouched.
+func parseDatasheetFull(raw []byte) (map[string]Price, map[string]ModelLimits, error) {
 	var sheet map[string]datasheetEntry
 	if err := json.Unmarshal(raw, &sheet); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	m := make(map[string]Price, len(sheet))
+	l := make(map[string]ModelLimits)
 	for model, e := range sheet {
 		if e.InputCostPerToken == 0 && e.OutputCostPerToken == 0 {
 			continue // free/embedding/no-price rows carry no signal for cost caps
@@ -343,11 +440,14 @@ func parseDatasheet(raw []byte) (map[string]Price, error) {
 			CacheWritePerMTok:   e.CacheWritePerToken * mtok,
 			CacheWrite1hPerMTok: e.CacheWrite1hPerToken * mtok,
 		}
+		if e.MaxInputTokens > 0 || e.MaxOutputTokens > 0 {
+			l[model] = ModelLimits{MaxInputTokens: e.MaxInputTokens, MaxOutputTokens: e.MaxOutputTokens}
+		}
 	}
 	if len(m) == 0 {
-		return nil, fmt.Errorf("datasheet parsed to zero priced models")
+		return nil, nil, fmt.Errorf("datasheet parsed to zero priced models")
 	}
-	return m, nil
+	return m, l, nil
 }
 
 // persist writes the raw sheet atomically (tmp + rename, same pattern
@@ -374,9 +474,20 @@ func persist(path string, raw []byte) {
 func SetTableForTest(m map[string]Price) {
 	if m == nil {
 		table.Store(nil)
+		limits.Store(nil)
+		fetched.Store(nil)
 		return
 	}
 	table.Store(&m)
+}
+
+// SetLimitsForTest replaces the in-memory limits map. Pass nil to clear.
+func SetLimitsForTest(m map[string]ModelLimits) {
+	if m == nil {
+		limits.Store(nil)
+		return
+	}
+	limits.Store(&m)
 }
 
 // FetchNowForTest runs one synchronous fetch cycle against the given

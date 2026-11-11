@@ -154,3 +154,53 @@ func TestPriceCall_CacheRates(t *testing.T) {
 		t.Fatalf("config flat-rate PriceCall = (%v, %v), want (0.368, true)", got, ok)
 	}
 }
+
+func TestResolvePrice_PrecedenceAndKeys(t *testing.T) {
+	SetConfigForTest(Config{ModelPricing: map[string]ModelPrice{
+		"claude-opus-5": {InputPerMTok: 1, OutputPerMTok: 2},
+	}})
+	ResetRuntimePricingForTest(t.TempDir() + "/p.json")
+	t.Cleanup(func() {
+		SetConfigForTest(Config{})
+		ResetRuntimePricingForTest("")
+		pricing.SetTableForTest(nil)
+	})
+	rt := map[string]ModelPrice{
+		"claude-opus-5": {InputPerMTok: 10, OutputPerMTok: 20},
+		"xai/grok-4":    {InputPerMTok: 3, OutputPerMTok: 4},
+	}
+	runtimeTable.Store(&rt)
+	pricing.SetTableForTest(map[string]pricing.Price{
+		"claude-opus-5": {InputPerMTok: 100, OutputPerMTok: 200},
+		"gpt-5.2":       {InputPerMTok: 5, OutputPerMTok: 6},
+	})
+
+	r, ok := ResolvePrice("anthropic", "claude-opus-5")
+	if !ok || r.Source != "config" || r.Key != "claude-opus-5" || r.Price.InputPerMTok != 1 {
+		t.Fatalf("config must win: %+v %v", r, ok)
+	}
+	// Prefixed form falls to the bare key.
+	r, ok = ResolvePrice("anthropic", "anthropic/claude-opus-5")
+	if !ok || r.Source != "config" || r.Key != "claude-opus-5" {
+		t.Fatalf("prefixed: %+v %v", r, ok)
+	}
+	r, ok = ResolvePrice("xai", "grok-4")
+	if !ok || r.Source != "runtime" || r.Key != "xai/grok-4" || r.Price.InputPerMTok != 3 {
+		t.Fatalf("runtime provider key: %+v %v", r, ok)
+	}
+	r, ok = ResolvePrice("", "gpt-5.2")
+	if !ok || r.Source != "catalog" || r.Key != "gpt-5.2" {
+		t.Fatalf("catalog: %+v %v", r, ok)
+	}
+	if _, ok := ResolvePrice("", "nope"); ok {
+		t.Fatal("unknown model must be unpriced")
+	}
+	if _, ok := ResolvePrice("", ""); ok {
+		t.Fatal("empty model must be unpriced")
+	}
+	// PriceCall agrees with the resolved source.
+	got, ok := PriceCall("", "gpt-5.2", pricing.Usage{Prompt: 1_000_000, Completion: 1_000_000})
+	if !ok || got != 11 {
+		t.Fatalf("PriceCall = %v %v, want 11", got, ok)
+	}
+}

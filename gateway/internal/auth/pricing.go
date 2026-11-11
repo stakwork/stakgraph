@@ -40,20 +40,47 @@ import (
 // is the Bifrost provider id that served the call; "" is allowed and
 // skips the second form.
 func PriceCall(provider, model string, usage pricing.Usage) (float64, bool) {
-	keys := pricing.Keys(provider, model)
-	if len(keys) == 0 {
+	r, ok := ResolvePrice(provider, model)
+	if !ok {
 		return 0, false
 	}
-	if entry, ok := configPrice(keys); ok {
-		return entry.price().Cost(usage), true
+	return r.Price.Cost(usage), true
+}
+
+// Price sources ResolvePrice reports.
+const (
+	SourceConfig  = "config"
+	SourceRuntime = "runtime"
+	SourceCatalog = "catalog"
+)
+
+// ResolvedPrice is the outcome of ResolvePrice: which source won, the
+// key that matched in it, and the rates (as stored, before the
+// zero-rate fallbacks — see pricing.Price.Effective).
+type ResolvedPrice struct {
+	Source string
+	Key    string
+	Price  pricing.Price
+}
+
+// ResolvePrice walks the sources in PriceCall's order (config,
+// runtime, catalog) with the same pricing.Keys candidates. PriceCall
+// is built on it, so what a read-out reports is what billing uses.
+func ResolvePrice(provider, model string) (ResolvedPrice, bool) {
+	keys := pricing.Keys(provider, model)
+	if len(keys) == 0 {
+		return ResolvedPrice{}, false
 	}
-	if entry, ok := runtimePrice(keys); ok {
-		return entry.price().Cost(usage), true
+	if key, entry, ok := configPrice(keys); ok {
+		return ResolvedPrice{SourceConfig, key, entry.price()}, true
 	}
-	if p, ok := pricing.Lookup(provider, model); ok {
-		return p.Cost(usage), true
+	if key, entry, ok := runtimePrice(keys); ok {
+		return ResolvedPrice{SourceRuntime, key, entry.price()}, true
 	}
-	return 0, false
+	if key, p, ok := pricing.LookupKey(provider, model); ok {
+		return ResolvedPrice{SourceCatalog, key, p}, true
+	}
+	return ResolvedPrice{}, false
 }
 
 // price converts an operator row into the catalog's Price so both
@@ -68,15 +95,26 @@ func (m ModelPrice) price() pricing.Price {
 	}
 }
 
-func configPrice(keys []string) (ModelPrice, bool) {
+func configPrice(keys []string) (string, ModelPrice, bool) {
 	table := GetConfig().ModelPricing
 	if len(table) == 0 {
-		return ModelPrice{}, false
+		return "", ModelPrice{}, false
 	}
 	for _, k := range keys {
 		if entry, ok := table[k]; ok {
-			return entry, true
+			return k, entry, true
 		}
 	}
-	return ModelPrice{}, false
+	return "", ModelPrice{}, false
+}
+
+// ConfigPricingRows is the number of rows in the config's model_pricing.
+func ConfigPricingRows() int { return len(GetConfig().ModelPricing) }
+
+// RuntimePricingRows is the number of rows in the runtime table.
+func RuntimePricingRows() int {
+	if m := runtimeTable.Load(); m != nil {
+		return len(*m)
+	}
+	return 0
 }
