@@ -147,6 +147,8 @@ Routes today:
 | GET    | `/_plugin/runs/:run_id/calls/:call_id`     | cookie or bearer    | Single call body — full input_history / output_message / params / tools / error_details / raw_response.    |
 | GET/POST/DELETE | `/_plugin/trust/*`                | bearer              | Phase-5 trust registry CRUD.                                                                               |
 | GET    | `/_plugin/tlog/sth?since=N`                | bearer              | Phase-12 transparency log: signed tree head, consistency proof from N, up to 5000 leaves from N. Hive's witness pull; 409 when N is ahead of the tree. |
+| GET    | `/_plugin/pricing/model?provider=&model=`  | none                | The price the Mothership bills `model` at, with the cache-rate fallbacks applied: `{provider, model, key, source ("config"\|"runtime"\|"catalog"), input_per_mtok, output_per_mtok, cache_read_per_mtok, cache_write_per_mtok, cache_write_1h_per_mtok, max_input_tokens?, max_output_tokens?}`. 404 `{"error":"unpriced"}` when no source prices it, 400 without `model`. `Cache-Control: max-age=300`. This is the read other services (strut, the workflow server) use to price calls the way the Mothership (this gateway) bills them. |
+| GET    | `/_plugin/pricing/status`                  | none                | The Mothership's pricing state: `{catalog: {loaded, models, fetched_at?, url}, runtime_rows, config_rows}`: the datasheet catalog's state and the row counts of the other two price sources. |
 | GET    | `/_plugin/pricing`                         | bearer              | The runtime price table: `{"<provider>/<model>": {input_per_mtok, output_per_mtok, cache_read_per_mtok?, cache_write_per_mtok?, cache_write_1h_per_mtok?}, …}` (`{}` when empty). |
 | PUT    | `/_plugin/pricing`                         | bearer              | Replaces the runtime price table whole (`{}` clears it), for models bifrost's datasheet lacks, such as custom providers. Kept in `/app/data/pricing.json` (`BIFROST_PLUGIN_PRICING_PATH`), so it survives restarts. A call is priced from the config's `model_pricing`, then this table, then the datasheet, else `$0` with a log line. A row of zeros marks a free model. An image call (generation, edit, variation) reads neither table: it is priced from the provider's own cost (xAI), else Bifrost's model catalog (`ctx.CalculateCost`: image tokens, per pixel, or per image by size and quality), else `$0` with a log line. 400 on a negative rate or a blank key. |
 
@@ -257,6 +259,37 @@ You should see lines like:
 [stakgraph-gateway] 2026-... PostLLMHook run_id=r_test_001 had_resp=true had_err=false prompt_tokens=12 completion_tokens=8 total_tokens=20 elapsed_ms=812
 [stakgraph-gateway] 2026-... HTTPTransportPostHook path=/v1/chat/completions status=200 body_bytes=441 run_id=r_test_001 elapsed_ms=813
 ```
+
+### Operator pricing rows (Mothership)
+
+The workflow server (strut) keeps no price tables of its own: it reads prices
+from the Mothership through `GET /_plugin/pricing/model`, and the Mothership
+bills from the same walk. The Maple, Numes and Token Factory rows live in the
+`model_pricing` block of `data/config.json` (the `stakgraph-gateway` plugin
+config, baked into the image as the seed config). They moved here from
+strut's aieo tables (`MAPLE_MODELS`, `NUMES_MODELS`, `TOKENFACTORY_MODELS`).
+
+Origin of the rows:
+
+- **Maple**: Maple's listed prices, as of 2026-11-03.
+- **Numes**: the free list from `GET /api/v1/models`, as of 2026-11-04. Every
+  row is an explicit `$0` row.
+- **Token Factory**: Token Factory's price list. The free tokens (`0/0`
+  rows) are intentional.
+
+Every row is keyed `<provider>/<model>` (`maple/...`, `numes/...`,
+`tokenfactory/...`, the custom provider names), so it can never match another
+provider's bare model name. None of these rows carries cache rates, so cached
+tokens price at the input rate. An all-zero row is a priced model: it
+resolves with `source: "config"`, `/_plugin/pricing/model` answers 200 with
+zeros, and no "no price" line is logged.
+
+There is no "dearest listed rate" ceiling. A Maple, Numes or Token Factory
+model with no row stays unpriced: `/_plugin/pricing/model` answers 404 and
+the call accumulates `$0` with the existing loud log line.
+
+**Open question:** whether `/_plugin/pricing/model` and
+`/_plugin/pricing/status` should require a token. They are anonymous today.
 
 ### Custom providers, end to end
 
