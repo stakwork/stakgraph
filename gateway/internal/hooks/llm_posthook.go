@@ -42,7 +42,7 @@ func LLMPost(
 	)
 
 	// Pull usage/cost from whichever response shape the provider
-	// populated (Chat or Responses — see callUsageOf).
+	// populated (Chat, Responses or an image — see callUsageOf).
 	call := callUsageOf(resp)
 	var (
 		tokens      pricing.Usage
@@ -67,7 +67,7 @@ func LLMPost(
 			}
 		case hadResp && !isStreamRequest(resp):
 			if pluginctx.MarkAccounted(ctx) {
-				costUSD = resolveCost(call, dims)
+				costUSD = callCost(ctx, call, dims)
 				auth.ApplyToLLMPost(claims, costUSD, call.tools)
 				appendTlogLeaf(ctx, claims, call, costUSD, tlog.StatusOK)
 			}
@@ -112,14 +112,21 @@ func isStreamRequest(resp *schemas.BifrostResponse) bool {
 //     v1.6 routes the Anthropic-native /anthropic/v1/messages
 //     integration through this type, so every Claude call made with
 //     the Anthropic SDK lands here — with ChatResponse nil.
+//   - Image (RequestType "image_generation[_stream]", "image_edit…",
+//     "image_variation"): usage as ImageUsage, mapped onto the chat
+//     shape for the log line, with the response kept in image for
+//     the catalog to price (imageCallUsage, imageCost).
 //
-// Everything downstream (resolveCost, the accumulator, the log line)
+// Everything downstream (callCost, the accumulator, the log line)
 // reads this struct and never touches the raw shapes again.
 type callUsage struct {
 	usage    *schemas.BifrostLLMUsage
 	model    string // resolved model, falling back to the wire model
 	provider string // Bifrost provider id that served the call
 	tools    []string
+	// image is the response of an image call, as Bifrost's model
+	// catalog prices it; nil for a text call.
+	image *schemas.BifrostResponse
 }
 
 // callUsageOf picks whichever shape a non-streaming BifrostResponse
@@ -133,6 +140,9 @@ func callUsageOf(resp *schemas.BifrostResponse) callUsage {
 		return chatCallUsage(resp.ChatResponse)
 	case resp.ResponsesResponse != nil:
 		return responsesCallUsage(resp.ResponsesResponse, &resp.ResponsesResponse.ExtraFields)
+	case resp.ImageGenerationResponse != nil:
+		img := resp.ImageGenerationResponse
+		return imageCallUsage(resp, img.Usage, img.Model, &img.ExtraFields)
 	}
 	return callUsage{}
 }
@@ -199,8 +209,17 @@ func tokensOf(u *schemas.BifrostLLMUsage) pricing.Usage {
 	return t
 }
 
-// resolveCost turns a call's usage into dollars. Precedence per the
-// phase-6 accumulator design:
+// callCost turns one call into dollars: an image call through
+// imageCost, every other call through resolveCost.
+func callCost(ctx *schemas.BifrostContext, call callUsage, dims map[string]string) float64 {
+	if call.image != nil {
+		return imageCost(ctx, call, dims)
+	}
+	return resolveCost(call, dims)
+}
+
+// resolveCost turns a text call's usage into dollars. Precedence per
+// the phase-6 accumulator design:
 //
 //  1. Provider-computed Usage.Cost.TotalCost (only some providers).
 //  2. auth.PriceCall on the (provider, resolved model) pair —

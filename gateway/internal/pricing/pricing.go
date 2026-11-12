@@ -28,6 +28,11 @@
 // runtime table (PUT /_plugin/pricing) → this catalog → $0 with a
 // loud log. The config layer stays as the
 // operator override and the air-gapped fallback.
+//
+// This catalog keeps per-token text rates only. An image call is
+// priced in the hook layer (hooks.imageCost): the provider's cost,
+// else Bifrost's own model catalog through ctx.CalculateCost, which
+// reads the datasheet's image rates.
 package pricing
 
 import (

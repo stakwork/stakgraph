@@ -148,7 +148,7 @@ Routes today:
 | GET/POST/DELETE | `/_plugin/trust/*`                | bearer              | Phase-5 trust registry CRUD.                                                                               |
 | GET    | `/_plugin/tlog/sth?since=N`                | bearer              | Phase-12 transparency log: signed tree head, consistency proof from N, up to 5000 leaves from N. Hive's witness pull; 409 when N is ahead of the tree. |
 | GET    | `/_plugin/pricing`                         | bearer              | The runtime price table: `{"<provider>/<model>": {input_per_mtok, output_per_mtok, cache_read_per_mtok?, cache_write_per_mtok?, cache_write_1h_per_mtok?}, …}` (`{}` when empty). |
-| PUT    | `/_plugin/pricing`                         | bearer              | Replaces the runtime price table whole (`{}` clears it), for models bifrost's datasheet lacks, such as custom providers. Kept in `/app/data/pricing.json` (`BIFROST_PLUGIN_PRICING_PATH`), so it survives restarts. A call is priced from the config's `model_pricing`, then this table, then the datasheet, else `$0` with a log line. A row of zeros marks a free model. 400 on a negative rate or a blank key. |
+| PUT    | `/_plugin/pricing`                         | bearer              | Replaces the runtime price table whole (`{}` clears it), for models bifrost's datasheet lacks, such as custom providers. Kept in `/app/data/pricing.json` (`BIFROST_PLUGIN_PRICING_PATH`), so it survives restarts. A call is priced from the config's `model_pricing`, then this table, then the datasheet, else `$0` with a log line. A row of zeros marks a free model. An image call (generation, edit, variation) reads neither table: it is priced from the provider's own cost (xAI), else Bifrost's model catalog (`ctx.CalculateCost`: image tokens, per pixel, or per image by size and quality), else `$0` with a log line. 400 on a negative rate or a blank key. |
 
 ### Admin UI (`/_plugin/ui/`)
 
@@ -296,6 +296,28 @@ What it shows, on bifrost `transports/v2.2.2`:
 - **Everything survives a restart with the baked `config.json`:** the price
   table, the custom providers with their keys and flags, and a key that
   replaced a built-in provider's `env.*` slot.
+
+### OpenRouter images: `openrouter-images`
+
+Bifrost's built-in `openrouter` provider cannot generate images: its
+`ImageGeneration` answers `unsupported_operation` at every release through
+`transports/v2.5.1`. So the seed `config.json` adds `openrouter-images`, an
+OpenAI-type custom provider on `https://openrouter.ai/api` with
+OpenRouter's key. Call it as `openrouter-images/<model>` on
+`/openai/v1/images/generations`, for example
+`openrouter-images/black-forest-labs/flux.2-klein-4b`.
+
+- **`image_generation` → `/v1/images`**, OpenRouter's images API. It serves
+  FLUX, Seedream, Recraft and Gemini images.
+- **`list_models` → `/v1/models?output_modalities=all`. This is required.**
+  A virtual key with `allowed_models: ["*"]`, which is what Hive mints,
+  admits only the models in the provider's live model list. OpenRouter's
+  default `/models` leaves out most image-only models, FLUX among them, and
+  those calls answer 403 `model_blocked`.
+- **Cost:** OpenRouter reports each call's cost as `usage.cost`, and the
+  plugin bills that figure.
+- **Access:** a virtual key reaches the provider only when it lists
+  `openrouter-images` among its providers.
 
 ## Local plugin build (without docker)
 
