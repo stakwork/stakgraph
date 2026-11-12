@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -83,7 +84,9 @@ func ApplyToLLMPost(claims *macaroon.Claims, costUSD float64, toolNames []string
 	if claims == nil || redisclient.Client() == nil {
 		return
 	}
+	inflight.Add(1)
 	go func() {
+		defer inflight.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), pipelineTimeout)
 		defer cancel()
 		if err := accumulate(ctx, claims, costUSD, toolNames, time.Now().UTC()); err != nil {
@@ -93,6 +96,20 @@ func ApplyToLLMPost(claims *macaroon.Claims, costUSD float64, toolNames []string
 			)
 		}
 	}()
+}
+
+// inflight counts the accumulator pipelines ApplyToLLMPost has started
+// and not finished. Nothing in production waits on it.
+var inflight sync.WaitGroup
+
+// WaitForAccumulatorsForTest blocks until every pipeline ApplyToLLMPost
+// started has finished. A test calls it before reading the
+// accumulators, since the pipeline's commands land one at a time
+// (cost:run is visible before steps:run), and before closing the
+// Redis client: a pipeline still in flight then fails, and its
+// warning lands in whatever the next test does with stderr.
+func WaitForAccumulatorsForTest() {
+	inflight.Wait()
 }
 
 // accumulate is the synchronous pipeline body. Split from

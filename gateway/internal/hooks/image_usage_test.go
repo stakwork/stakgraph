@@ -216,9 +216,10 @@ func TestLLMPost_Image_TripsRunCap(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	waitFor(t, "cost:run", func() bool {
-		return math.Abs(hashFloat(mr, "bifrost:cost:run:r_images")-1.02) < 1e-9
-	})
+	auth.WaitForAccumulatorsForTest()
+	if got := hashFloat(mr, "bifrost:cost:run:r_images"); math.Abs(got-1.02) >= 1e-9 {
+		t.Fatalf("cost:run = %v, want 1.02", got)
+	}
 	_, claims := cappedClaimsContext("r_images")
 	capErr := auth.CheckCaps(context.Background(), claims, "", time.Now().UTC())
 	if capErr == nil || capErr.Code != "run_cost_exceeded" || capErr.HTTPStatus != 402 {
@@ -311,7 +312,7 @@ func TestLLMPost_ImageStream_Skipped(t *testing.T) {
 	if _, _, err := LLMPost(ctx, resp, nil); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(50 * time.Millisecond)
+	auth.WaitForAccumulatorsForTest()
 	if cat.calls != 0 || mr.HGet("bifrost:steps:run:r_resp", "total") != "" {
 		t.Fatalf("a stream's set-up firing was accounted (catalog calls %d)", cat.calls)
 	}

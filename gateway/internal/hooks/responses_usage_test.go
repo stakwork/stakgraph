@@ -201,6 +201,10 @@ func newMiniRedis(t *testing.T) *miniredis.Miniredis {
 	c := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	redisclient.SetClientForTest(c)
 	t.Cleanup(func() {
+		// No accumulator pipeline may outlive its test: one still in
+		// flight when the client closes fails and logs to stderr,
+		// racing the next test's captureStderr.
+		auth.WaitForAccumulatorsForTest()
 		redisclient.SetClientForTest(nil)
 		_ = c.Close()
 	})
@@ -247,20 +251,26 @@ func hashFloat(mr *miniredis.Miniredis, key string) float64 {
 	return f
 }
 
+// waitForAccounting waits for every accumulator pipeline in flight,
+// then checks that run r_resp holds one call at wantCost with
+// wantTools. It never polls one counter and reads another: the
+// pipeline's commands land one at a time, so the cost can be visible
+// before the step (how TestLLMPost_Image_CatalogCost failed on a CI
+// runner with steps:run = "", want 1).
 func waitForAccounting(t *testing.T, mr *miniredis.Miniredis, wantCost float64, wantTools []string) {
 	t.Helper()
-	waitFor(t, "cost:run", func() bool {
-		return math.Abs(hashFloat(mr, "bifrost:cost:run:r_resp")-wantCost) < 1e-9
-	})
-	waitFor(t, "tools:run", func() bool {
-		got, _ := mr.List("bifrost:tools:run:r_resp")
-		return len(got) == len(wantTools)
-	})
+	auth.WaitForAccumulatorsForTest()
+	if got := hashFloat(mr, "bifrost:cost:run:r_resp"); math.Abs(got-wantCost) >= 1e-9 {
+		t.Fatalf("cost:run = %v, want %v", got, wantCost)
+	}
 	if got := mr.HGet("bifrost:steps:run:r_resp", "total"); got != "1" {
 		t.Fatalf("steps:run = %q, want 1", got)
 	}
 	// LPUSH order: most recent tool first.
 	got, _ := mr.List("bifrost:tools:run:r_resp")
+	if len(got) != len(wantTools) {
+		t.Fatalf("tools:run = %v, want %v", got, wantTools)
+	}
 	for i, want := range wantTools {
 		if got[i] != want {
 			t.Fatalf("tools:run = %v, want %v", got, wantTools)
