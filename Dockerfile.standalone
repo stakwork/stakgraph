@@ -55,6 +55,18 @@ RUN apt-get update && apt-get install -y \
     openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
+# DEBIAN-CVE-2026-89078 affects bookworm ruby3.1 (3.1.2-7+deb12u1) and there is
+# NO fixed bookworm version yet. Mitigate by removing the system Ruby; the Ruby
+# used at runtime is asdf-installed 3.2.2 (see lsp/Dockerfile). Any package that
+# remains installed is upgraded so a fix is picked up once published.
+# No autoremove, to avoid dropping tools that are still needed.
+RUN apt-get update \
+    && pkgs=$(dpkg-query -W -f='${binary:Package} ' ruby ruby-dev ruby-sdbm ruby-doc ruby3.1 ruby3.1-dev ruby3.1-doc libruby3.1 2>/dev/null || true) \
+    && if [ -n "$pkgs" ]; then apt-get purge -y $pkgs; fi \
+    && left=$(dpkg-query -W -f='${binary:Package} ' ruby ruby-dev ruby-sdbm ruby-doc ruby3.1 ruby3.1-dev ruby3.1-doc libruby3.1 2>/dev/null || true) \
+    && if [ -n "$left" ]; then apt-get install -y --only-upgrade $left; fi \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /app/target/release/standalone /app/stakgraph
 COPY --from=builder /app/standalone/static /app/standalone/static
 
