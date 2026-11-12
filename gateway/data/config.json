@@ -42,6 +42,26 @@
         }
       ]
     },
+    "openrouter-images": {
+      "keys": [
+        {
+          "name": "openrouter-images-key-1",
+          "value": "env.OPENROUTER_API_KEY",
+          "models": ["*"],
+          "weight": 1.0
+        }
+      ],
+      "network_config": {
+        "base_url": "https://openrouter.ai/api"
+      },
+      "custom_provider_config": {
+        "base_provider_type": "openai",
+        "request_path_overrides": {
+          "image_generation": "/v1/images",
+          "list_models": "/v1/models?output_modalities=all"
+        }
+      }
+    },
     "gemini": {
       "keys": [
         {
