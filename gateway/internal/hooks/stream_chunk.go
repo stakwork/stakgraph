@@ -58,7 +58,13 @@ func StreamChunk(
 	}
 
 	call := streamCallUsage(chunk)
-	if claims == nil || call.usage == nil || call.usage.TotalTokens == 0 {
+	if claims == nil || call.usage == nil {
+		return chunk, nil
+	}
+	// A text chunk without tokens carries nothing to bill. An image's
+	// completed event is billed whatever its tokens: a model priced
+	// per image reports none.
+	if call.usage.TotalTokens == 0 && call.image == nil {
 		return chunk, nil
 	}
 	if !pluginctx.MarkAccounted(ctx) {
@@ -66,7 +72,7 @@ func StreamChunk(
 	}
 
 	dims := pluginctx.Dims(ctx)
-	costUSD := resolveCost(call, dims)
+	costUSD := callCost(ctx, call, dims)
 	auth.ApplyToLLMPost(claims, costUSD, call.tools)
 	appendTlogLeaf(ctx, claims, call, costUSD, tlog.StatusOK)
 	tokens := tokensOf(call.usage)
@@ -98,6 +104,10 @@ func StreamChunk(
 //     event: the Anthropic provider forwards message_start's
 //     input-only usage on response.created, so a first-wins rule
 //     would bill the prompt and drop the completion tokens.
+//   - image_generation_stream / image_edit_stream: partial images
+//     carry no usage; the completed event does (OpenAI sends one,
+//     after the last image, and ends the stream on it). That event
+//     is the accountable one, priced as a whole response would be.
 func streamCallUsage(chunk *schemas.BifrostStreamChunk) callUsage {
 	switch {
 	case chunk.BifrostChatResponse != nil:
@@ -119,6 +129,13 @@ func streamCallUsage(chunk *schemas.BifrostStreamChunk) callUsage {
 			ef = &sr.Response.ExtraFields
 		}
 		return responsesCallUsage(sr.Response, ef)
+	case chunk.BifrostImageGenerationStreamResponse != nil:
+		img := chunk.BifrostImageGenerationStreamResponse
+		if !isImageStreamCompleted(img.Type) {
+			return callUsage{}
+		}
+		resp := &schemas.BifrostResponse{ImageGenerationStreamResponse: img}
+		return imageCallUsage(resp, img.Usage, "", &img.ExtraFields)
 	}
 	return callUsage{}
 }

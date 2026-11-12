@@ -9,6 +9,9 @@ import (
 // none does — the caller decides how loudly to complain about an
 // unpriced model.
 //
+// Text calls only: an image call is priced in the hook layer
+// (hooks.imageCost), since these sources hold per-token text rates.
+//
 // Source precedence (the hook layer sits one level above this: a
 // provider-computed Usage.Cost.TotalCost wins over everything here):
 //
