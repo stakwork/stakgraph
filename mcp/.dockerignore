@@ -5,3 +5,9 @@ dist
 .git
 .env
 *.log
+data
+local_cache
+uploads
+*.md
+.DS_Store
+.neo4j
