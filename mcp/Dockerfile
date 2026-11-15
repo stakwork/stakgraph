@@ -160,7 +160,24 @@ COPY ./src/gitsee/agent/package.json ./src/gitsee/agent/package.json
 # runs its `prepare`, which builds the engine and the /lab web UI; the packed
 # result lands in node_modules/strut with build/ and web/dist. strut's own
 # deps are resolved into this tree, so the `resolutions` above apply to it.
-RUN yarn && yarn cache clean && rm -rf /root/.cache/yarn /usr/local/share/.cache/yarn /tmp/*
+# Single layer: install, drop the yarn cache (strut git clone + every optional
+# platform tarball, ~5.8GB, otherwise baked into the layer), and prune binaries.
+# - ONNXRUNTIME_NODE_INSTALL_CUDA=skip: onnxruntime-node's postinstall would
+#   otherwise download CUDA provider libs; this container is CPU-only.
+# - the cache cleanup removes yarn's cache dir wherever it lives.
+# - the prune keeps only onnxruntime-node's linux/<build arch> binaries (other
+#   OS/arch dirs are dead weight) and drops the unused CUDA/TensorRT provider
+#   libs. The linux/$KEEP dir itself is kept; globs may not match, hence `|| true`.
+RUN ONNXRUNTIME_NODE_INSTALL_CUDA=skip yarn install --frozen-lockfile && \
+    yarn cache clean && \
+    rm -rf "$(yarn cache dir)" /usr/local/share/.cache/yarn /root/.cache/yarn /root/.npm /tmp/* && \
+    ARCH=$(dpkg --print-architecture) && \
+    case "$ARCH" in amd64) KEEP=x64;; arm64) KEEP=arm64;; *) KEEP=none;; esac && \
+    { for d in node_modules/onnxruntime-node/bin/napi-v*/*/*; do \
+        case "$d" in */linux/$KEEP) ;; *) rm -rf "$d";; esac; \
+      done || true; } && \
+    { rm -f node_modules/onnxruntime-node/bin/napi-v*/linux/*/libonnxruntime_providers_cuda.so \
+        node_modules/onnxruntime-node/bin/napi-v*/linux/*/libonnxruntime_providers_tensorrt.so || true; }
 
 # Install linux x64 tokenizer bindings (required for fastembed in Docker)
 #
