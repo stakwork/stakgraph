@@ -176,6 +176,28 @@ RUN CGO_ENABLED=0 GOOS=linux \
         -o /out/wrapper .
 
 # ---------------------------------------------------------------------------
+# Stage 2d: build the logs-archive helper.
+#
+# The S3 side of log payload offload (BIFROST_LOGS_S3_*): the bucket
+# preflight at boot and the background upload of a logs.db that predates
+# offload. The wrapper runs it; see gateway/logarchive/main.go. Its own
+# module so the wrapper stays stdlib-only and the plugin's dependency set
+# (which must match bifrost-http's) is untouched. Its go.mod pins the AWS
+# SDK to the versions bifrost transports/v2.2.2 builds with. Static, no
+# CGO.
+# ---------------------------------------------------------------------------
+FROM golang:${GO_VERSION}-alpine3.23 AS logarchive-builder
+WORKDIR /logarchive
+COPY logarchive/go.mod logarchive/go.sum ./
+RUN go mod download
+COPY logarchive/*.go ./
+RUN CGO_ENABLED=0 GOOS=linux \
+    go build \
+        -ldflags="-w -s" \
+        -trimpath \
+        -o /out/logs-archive .
+
+# ---------------------------------------------------------------------------
 # Stage 3: minimal runtime — Alpine + dynamic libc + ca-certs.
 # ---------------------------------------------------------------------------
 FROM alpine:3.23
@@ -192,6 +214,7 @@ COPY --from=builder         /out/bifrost-http             /app/bifrost-http
 COPY --from=builder         /out/stakgraph-gateway.so     /app/plugins/stakgraph-gateway.so
 COPY --from=builder         /src/BIFROST_COMMIT           /app/BIFROST_COMMIT
 COPY --from=wrapper-builder /out/wrapper                  /app/wrapper
+COPY --from=logarchive-builder /out/logs-archive          /app/logs-archive
 
 # Ship config.json as a SEED file outside the /app/data volume. The wrapper
 # (see wrapper/main.go syncSeedConfig) copies it into /app/data/config.json on

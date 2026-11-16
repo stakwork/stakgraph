@@ -34,7 +34,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -189,45 +191,154 @@ func logsStoreBlock(o *logsOffload, appDir string) logsStoreJSON {
 // on purpose.
 var errSeedHasLogsStore = errors.New("the seed config.json already has a logs_store section")
 
+// offloadRetentionDays is client.log_retention_days in the config
+// written with offload on. The plugin dashboard's longest window is 30
+// days, and with payloads in the bucket, logs.db only needs the index rows
+// for that long (they still add up over a year on a busy swarm). With
+// offload off the seed's value (365) stays: nothing is deleted that has
+// not been archived. A seed already at or below 30 keeps its own value.
+//
+// Bifrost reconciles client config by hash (lib.loadClientConfig): a
+// changed value in config.json wins over the one stored in config.db on
+// the next boot, in both directions.
+const offloadRetentionDays = 30
+
 // renderConfig returns the config.json to write to the app dir: the seed
-// unchanged when o is nil, else the seed with a logs_store block added
-// as its last top-level key. The seed's own bytes are kept as they are
-// (only the closing brace moves), so `diff` against the seed shows just
-// the added block.
+// unchanged when o is nil. With offload on: the seed with a logs_store
+// block added as its last top-level key and client.log_retention_days
+// lowered to offloadRetentionDays. Top-level keys keep their order and
+// every untouched value keeps its bytes, so `diff` against the seed shows
+// just those two changes.
 func renderConfig(seed []byte, o *logsOffload, appDir string) ([]byte, error) {
 	if o == nil {
 		return seed, nil
 	}
 
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(seed, &top); err != nil {
+	members, err := parseObject(seed)
+	if err != nil {
 		return nil, fmt.Errorf("parse seed config.json: %w", err)
 	}
-	if top == nil {
-		return nil, errors.New("parse seed config.json: not a JSON object")
-	}
-	if _, ok := top[logsStoreKey]; ok {
+	if indexOf(members, logsStoreKey) >= 0 {
 		return nil, errSeedHasLogsStore
+	}
+
+	ci := indexOf(members, "client")
+	var client json.RawMessage
+	if ci >= 0 {
+		client = members[ci].raw
+	}
+	client, err = withRetention(client, offloadRetentionDays)
+	if err != nil {
+		return nil, fmt.Errorf("seed config.json client: %w", err)
+	}
+	if ci >= 0 {
+		members[ci].raw = client
+	} else {
+		members = append(members, member{key: "client", raw: client})
 	}
 
 	block, err := json.MarshalIndent(logsStoreBlock(o, appDir), "  ", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("marshal logs_store: %w", err)
 	}
+	members = append(members, member{key: logsStoreKey, raw: block})
+	return append(emitObject(members, ""), '\n'), nil
+}
 
-	// json.Unmarshal into a map succeeded, so the trimmed seed is one
-	// object: it starts with '{' and ends with '}'.
-	body := bytes.TrimRight(seed, " \t\r\n")
-	body = bytes.TrimRight(body[:len(body)-1], " \t\r\n")
-
-	var out bytes.Buffer
-	out.Grow(len(seed) + len(block) + 32)
-	out.Write(body)
-	if len(top) > 0 {
-		out.WriteByte(',')
+// withRetention returns the client object with log_retention_days set to
+// days, unless it is already a positive value at or below days (then the
+// object is returned untouched).
+func withRetention(client json.RawMessage, days int) (json.RawMessage, error) {
+	var members []member
+	if client != nil {
+		var err error
+		if members, err = parseObject(client); err != nil {
+			return nil, err
+		}
 	}
-	out.WriteString("\n  \"" + logsStoreKey + "\": ")
-	out.Write(block)
-	out.WriteString("\n}\n")
-	return out.Bytes(), nil
+	want := json.RawMessage(strconv.Itoa(days))
+	if i := indexOf(members, "log_retention_days"); i >= 0 {
+		var cur int
+		if json.Unmarshal(members[i].raw, &cur) == nil && cur > 0 && cur <= days {
+			return client, nil
+		}
+		members[i].raw = want
+	} else {
+		members = append(members, member{key: "log_retention_days", raw: want})
+	}
+	return emitObject(members, "  "), nil
+}
+
+// member is one key of a JSON object, its value kept as the raw bytes it
+// was written with.
+type member struct {
+	key string
+	raw json.RawMessage
+}
+
+// parseObject splits a JSON object into its members, in order.
+func parseObject(b []byte) ([]member, error) {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	t, err := dec.Token()
+	if err != nil {
+		return nil, err
+	}
+	if d, ok := t.(json.Delim); !ok || d != '{' {
+		return nil, errors.New("not a JSON object")
+	}
+	var out []member
+	for dec.More() {
+		kt, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		k, ok := kt.(string)
+		if !ok {
+			return nil, fmt.Errorf("unexpected token %v", kt)
+		}
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			return nil, err
+		}
+		out = append(out, member{key: k, raw: raw})
+	}
+	if _, err := dec.Token(); err != nil { // the closing brace
+		return nil, err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, errors.New("data after the JSON object")
+	}
+	return out, nil
+}
+
+// emitObject writes members as an object in the seed's layout: one key
+// per line, two-space indent below indent, values as they were.
+func emitObject(ms []member, indent string) []byte {
+	if len(ms) == 0 {
+		return []byte("{}")
+	}
+	var b bytes.Buffer
+	b.WriteString("{\n")
+	for i, m := range ms {
+		k, _ := json.Marshal(m.key)
+		b.WriteString(indent + "  ")
+		b.Write(k)
+		b.WriteString(": ")
+		b.Write(m.raw)
+		if i < len(ms)-1 {
+			b.WriteByte(',')
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteString(indent + "}")
+	return b.Bytes()
+}
+
+func indexOf(ms []member, key string) int {
+	for i, m := range ms {
+		if m.key == key {
+			return i
+		}
+	}
+	return -1
 }

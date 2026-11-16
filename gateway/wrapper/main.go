@@ -30,9 +30,11 @@
 // Startup ordering
 // ----------------
 // Wrapper:
-//  0. Writes /app/data/config.json from the image's seed, plus a
-//     logs_store block when BIFROST_LOGS_S3_BUCKET is set (see
-//     logsoffload.go).
+//  0. When BIFROST_LOGS_S3_BUCKET is set: checks the bucket
+//     (logs-archive preflight) and, once, moves a logs.db that predates
+//     offload aside (legacy.go). Then writes /app/data/config.json from
+//     the image's seed, plus a logs_store block and 30-day retention
+//     when offload is on (logsoffload.go).
 //  1. Starts bifrost-http child process.
 //  2. Polls 127.0.0.1:8080 until /health responds (bifrost ready).
 //     If bifrost-http fails to come up with logs offload on, it is
@@ -40,7 +42,8 @@
 //  3. Polls 127.0.0.1:8189 until /_plugin/health responds (plugin
 //     ready — skipped if plugin server didn't start, e.g. dev mode
 //     without BIFROST_PROVISIONING_TOKEN).
-//  4. Opens the public listener.
+//  4. Opens the public listener, and archives moved-aside logs.db sets
+//     to the bucket in the background (legacy.go).
 //
 // If bifrost-http exits unexpectedly, the wrapper exits with the same
 // status; the container then restarts under docker-compose's
@@ -121,14 +124,17 @@ var errChildExited = errors.New("bifrost-http exited")
 
 func main() {
 	var (
-		publicAddr  string
-		bifrostBin  string
-		bifrostArgs argsFlag
+		publicAddr     string
+		bifrostBin     string
+		logsArchiveBin string
+		bifrostArgs    argsFlag
 	)
 	flag.StringVar(&publicAddr, "listen", defaultPublicAddr,
 		"public address to listen on (host:port)")
 	flag.StringVar(&bifrostBin, "bifrost-bin", "/app/bifrost-http",
 		"path to the bifrost-http binary")
+	flag.StringVar(&logsArchiveBin, "logs-archive-bin", defaultLogsArchiveBin,
+		"path to the logs-archive helper (log offload preflight and legacy logs.db upload)")
 	flag.Var(&bifrostArgs, "bifrost-arg",
 		"argument to pass to bifrost-http (repeatable; default arg set used if none given)")
 	flag.Parse()
@@ -168,6 +174,33 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
+	// With offload requested: prove the bucket works before anything
+	// depends on it, then move a logs.db that predates offload aside
+	// (legacy.go). Either failing keeps offload off for this boot and
+	// leaves logs.db where it is.
+	// archiveDest is the bucket that passed the preflight: the archiver
+	// uses it even when this boot runs without offload (a failed move).
+	var archiveDest *logsOffload
+	if offload != nil {
+		if err := runPreflight(rootCtx, logsArchiveBin, offload); err != nil {
+			logger.Printf("ERROR: logs offload off for this boot: the bucket failed the preflight "+
+				"(%v; see the [logs-archive] lines above); logs.db is left as it is", err)
+			offload = nil
+		} else {
+			archiveDest = offload
+			moved, err := moveLegacyLogsDB(appDir, time.Now())
+			switch {
+			case err != nil:
+				logger.Printf("ERROR: logs offload off for this boot: moving the old logs.db aside failed: %v", err)
+				offload = nil
+			case moved != "":
+				logger.Printf("moved the logs.db that predates offload to %s; bifrost starts a fresh one "+
+					"(dashboard history restarts here); the old set is archived to s3://%s/%s/legacy/ in the background",
+					moved, offload.Bucket, offload.Prefix)
+			}
+		}
+	}
+
 	// Write config.json, start bifrost-http, and wait for it to bind
 	// its listener. If it dies during startup, surface that immediately
 	// instead of timing out.
@@ -186,6 +219,28 @@ func main() {
 	if err != nil {
 		shutdownChild(logger, cmd)
 		logger.Fatalf("bifrost-http never became ready: %v", err)
+	}
+
+	// Archive moved-aside logs.db sets in the background (also ones a
+	// previous boot did not finish). Only when the bucket passed the
+	// preflight; stopped on shutdown, before bifrost-http.
+	archiveCtx, stopArchive := context.WithCancel(rootCtx)
+	archiveDone := make(chan struct{})
+	go func() {
+		defer close(archiveDone)
+		if archiveDest != nil {
+			(&archiver{
+				logger: logger, bin: logsArchiveBin, appDir: appDir, offload: archiveDest,
+				retryMin: 5 * time.Minute, retryMax: time.Hour,
+			}).run(archiveCtx)
+		}
+	}()
+	stopArchiving := func() {
+		stopArchive()
+		select {
+		case <-archiveDone:
+		case <-time.After(25 * time.Second):
+		}
 	}
 
 	// Plugin server is optional — it only starts if BIFROST_ADMIN_*
@@ -228,17 +283,22 @@ func main() {
 	case err := <-childDone:
 		logger.Printf("bifrost-http exited unexpectedly: %v", err)
 		shutdownPublicServer(server, logger)
+		stopArchiving()
 		os.Exit(exitCodeFromErr(err))
 	case err := <-serverDone:
 		if !errors.Is(err, http.ErrServerClosed) {
 			logger.Printf("public server failed: %v", err)
 		}
+		stopArchiving()
 		shutdownChild(logger, cmd)
 		os.Exit(1)
 	}
 
-	// Graceful path: close public listener, then bifrost-http.
+	// Graceful path: close public listener, stop archiving (the helper
+	// aborts its upload; the files stay for the next start), then
+	// bifrost-http.
 	shutdownPublicServer(server, logger)
+	stopArchiving()
 	shutdownChild(logger, cmd)
 	// Drain childDone so we don't leak the goroutine on exit.
 	select {

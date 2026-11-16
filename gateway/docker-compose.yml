@@ -89,10 +89,11 @@ services:
       # Log payload offload to S3 (README "Log payloads in S3"). Off by
       # default: with BIFROST_LOGS_S3_BUCKET empty, config.json is the
       # seed and every payload stays in logs.db, as before. Set the
-      # bucket to turn it on; the wrapper adds a logs_store block to
-      # config.json at boot. If Bifrost cannot start with it (bucket
-      # missing, denied, unreachable), the wrapper restarts it once
-      # without offload rather than take the gateway down.
+      # bucket to turn it on: the wrapper checks the bucket at boot (a
+      # failing bucket leaves offload off and logs.db untouched), adds a
+      # logs_store block and 30-day retention to config.json, and on the
+      # first such boot moves the existing logs.db aside and archives it
+      # to <prefix>/legacy/ in the background (dashboard history restarts).
       #   PREFIX    key prefix, one per box (default "bifrost")
       #   REGION    the bucket's region; Bifrost needs one (this or
       #             AWS_REGION), even with ENDPOINT. R2 takes "auto"

@@ -7,8 +7,9 @@ name: Gateway Checks
 #     plugin binary itself is only built by the Dockerfile — a plain
 #     `go build .` fails by design. ./internal/... is the compile
 #     surface that matters for review.
-#   - wrapper: build + vet + unit tests for gateway/wrapper, the
-#     container entrypoint (a separate stdlib-only Go module).
+#   - modules: build + vet + unit tests for the image's two standalone Go
+#     modules: gateway/wrapper (the container entrypoint, stdlib only)
+#     and gateway/logarchive (its S3 helper for log offload).
 #   - tygo-check: regenerates ui/src/api/types.ts from the Go structs
 #     in gateway/internal/adminapi and fails on any diff, so a Go
 #     response-shape change can't land without its committed TS
@@ -52,22 +53,27 @@ jobs:
       - name: Test
         run: go test ./internal/...
 
-  # The wrapper (container entrypoint) is its own stdlib-only module, so
-  # the plugin job's ./internal/... never reaches it. Static build as in
-  # the Dockerfile's wrapper-builder stage, then vet + tests (race on:
-  # its boot fallback stops and restarts child processes).
-  wrapper:
+  # The wrapper (container entrypoint, stdlib only) and logarchive (its S3
+  # helper) are their own modules, so the plugin job's ./internal/...
+  # never reaches them. Static build as in the Dockerfile's builder
+  # stages, then vet + tests (race on: the wrapper stops and restarts
+  # child processes, the helper streams through a pipe).
+  modules:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      matrix:
+        module: [wrapper, logarchive]
     defaults:
       run:
-        working-directory: gateway/wrapper
+        working-directory: gateway/${{ matrix.module }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: gateway/wrapper/go.mod
+          go-version-file: gateway/${{ matrix.module }}/go.mod
+          cache-dependency-path: gateway/${{ matrix.module }}/go.*
 
       - name: Build (static, as in the image)
         run: CGO_ENABLED=0 go build -o /dev/null .

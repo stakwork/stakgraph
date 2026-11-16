@@ -177,15 +177,21 @@ func TestRenderConfigAddsLogsStore(t *testing.T) {
 	o := &logsOffload{Bucket: "fleet-logs", Prefix: "swarm38"}
 	top, ls := decodeLogsStore(t, []byte(testSeed), o)
 
-	// Every seed key is still there, unchanged.
+	// Every seed key is still there, unchanged, but for the retention.
 	var seedTop map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(testSeed), &seedTop); err != nil {
 		t.Fatal(err)
 	}
 	for k, v := range seedTop {
+		if k == "client" {
+			continue
+		}
 		if !jsonEqual(t, top[k], v) {
 			t.Errorf("seed key %q changed: %s -> %s", k, v, top[k])
 		}
+	}
+	if !jsonEqual(t, top["client"], json.RawMessage(`{"log_retention_days": 30}`)) {
+		t.Errorf("client = %s, want log_retention_days 30", top["client"])
 	}
 	if len(top) != len(seedTop)+1 {
 		t.Errorf("want seed keys + logs_store, got %d keys", len(top))
@@ -251,29 +257,82 @@ func TestRenderConfigNeverWritesKeyValues(t *testing.T) {
 }
 
 func TestRenderConfigKeepsSeedBytes(t *testing.T) {
-	out, err := renderConfig([]byte(testSeed), &logsOffload{Bucket: "b", Prefix: "p"}, "/app/data")
+	// The real seed: the output is the seed with 365 -> 30 and the
+	// logs_store block appended; every other byte as it was.
+	seed, err := os.ReadFile(filepath.Join("..", "data", "config.json"))
+	if err != nil {
+		t.Skipf("no seed: %v", err)
+	}
+	out, err := renderConfig(seed, &logsOffload{Bucket: "b", Prefix: "p"}, "/app/data")
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := strings.TrimRight(testSeed, "\n")
+	if !bytes.Contains(seed, []byte(`"log_retention_days": 365,`)) {
+		t.Skip("seed no longer has log_retention_days 365")
+	}
+	body := strings.TrimRight(string(seed), "\n")
 	body = strings.TrimRight(body[:len(body)-1], "\n ")
-	if !bytes.HasPrefix(out, []byte(body)) {
-		t.Errorf("rendered config does not start with the seed's bytes:\n%s", out)
+	body = strings.Replace(body, `"log_retention_days": 365,`, `"log_retention_days": 30,`, 1)
+	if !strings.HasPrefix(string(out), body+",\n  \"logs_store\": {") {
+		t.Errorf("rendered config is not the seed + retention + logs_store:\n%s", out)
 	}
 	if !bytes.HasSuffix(out, []byte("\n}\n")) {
 		t.Errorf("rendered config does not end with a closing brace line:\n%s", out)
 	}
 	// Deterministic: same input, same bytes (the skip-when-identical
 	// check depends on it).
-	again, _ := renderConfig([]byte(testSeed), &logsOffload{Bucket: "b", Prefix: "p"}, "/app/data")
+	again, _ := renderConfig(seed, &logsOffload{Bucket: "b", Prefix: "p"}, "/app/data")
 	if !bytes.Equal(out, again) {
 		t.Error("renderConfig is not deterministic")
 	}
 }
 
+func TestWithRetention(t *testing.T) {
+	for _, tc := range []struct {
+		name, in, want string
+		same           bool // returned untouched, bytes and all
+	}{
+		{name: "365 lowered", in: `{"a": true, "log_retention_days": 365, "b": 1}`,
+			want: `{"a": true, "log_retention_days": 30, "b": 1}`},
+		{name: "already 7", in: `{ "log_retention_days": 7 }`, same: true},
+		{name: "exactly 30", in: `{"log_retention_days": 30}`, same: true},
+		{name: "missing key", in: `{"a": 1}`, want: `{"a": 1, "log_retention_days": 30}`},
+		{name: "no client", in: "", want: `{"log_retention_days": 30}`},
+		{name: "zero", in: `{"log_retention_days": 0}`, want: `{"log_retention_days": 30}`},
+		{name: "not a number", in: `{"log_retention_days": "365"}`, want: `{"log_retention_days": 30}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var in json.RawMessage
+			if tc.in != "" {
+				in = json.RawMessage(tc.in)
+			}
+			got, err := withRetention(in, 30)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.same {
+				if string(got) != tc.in {
+					t.Errorf("got %s, want %s untouched", got, tc.in)
+				}
+				return
+			}
+			if !jsonEqual(t, got, json.RawMessage(tc.want)) {
+				t.Errorf("got %s, want %s", got, tc.want)
+			}
+			// Key order kept.
+			if tc.name == "365 lowered" && !strings.Contains(string(got), "\"a\": true,\n    \"log_retention_days\": 30,\n    \"b\": 1") {
+				t.Errorf("order or layout not kept:\n%s", got)
+			}
+		})
+	}
+	if _, err := withRetention(json.RawMessage(`[1]`), 30); err == nil {
+		t.Error("client that is not an object: want an error")
+	}
+}
+
 func TestRenderConfigEmptySeedObject(t *testing.T) {
 	top, ls := decodeLogsStore(t, []byte("{}"), &logsOffload{Bucket: "b", Prefix: "p"})
-	if len(top) != 1 || ls["type"] != "sqlite" {
+	if len(top) != 2 || ls["type"] != "sqlite" || !jsonEqual(t, top["client"], json.RawMessage(`{"log_retention_days":30}`)) {
 		t.Errorf("got %v", top)
 	}
 }
@@ -294,7 +353,7 @@ func TestRenderConfigRefuses(t *testing.T) {
 	if !errors.Is(err, errSeedHasLogsStore) {
 		t.Errorf("seed with logs_store: err = %v, want errSeedHasLogsStore", err)
 	}
-	for _, bad := range []string{``, `nope`, `[1,2]`, `null`, `{"a":1`} {
+	for _, bad := range []string{``, `nope`, `[1,2]`, `null`, `{"a":1`, `{"a":1} {}`, `{"client": 5}`} {
 		if _, err := renderConfig([]byte(bad), o, "/app/data"); err == nil {
 			t.Errorf("seed %q: want an error", bad)
 		}

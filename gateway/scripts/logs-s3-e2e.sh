@@ -15,22 +15,36 @@
 # compose stack is not touched.
 #
 # What it shows, in order:
-#   off      vars unset: config.json == seed, payloads in logs.db (these
-#            rows are the "existing logs.db" for the next phase)
-#   on       same volume, offload on, credentials of a MinIO user that
-#            holds ONLY the README's policy:
-#            a. objects at <prefix>/logs/YYYY/MM/DD/HH/<id>.json.gz
-#            b. the SQLite rows' payload columns stripped
-#            c. /api/logs/{id} and /_plugin/runs/:run/calls/:id full
-#            d. plugin spend rollups == SUM(cost) / SUM(tokens) / rows
-#               in logs.db
-#            f. pre-offload rows still read in full
-#            a dropped upload (store down after boot): logged, payload lost
-#   off-again vars unset over the offloaded volume: new rows keep their
-#            payloads, offloaded rows show only the last user message
-#   on-again offload back on: the offloaded rows read in full again
-#   bad      g. a bad bucket / bad keys / unreachable endpoint / one key
-#            only: the gateway still boots and serves, without offload
+#   off       vars unset: config.json == seed, retention 365, payloads in
+#             logs.db. Then 2 GiB of incompressible padding is added to
+#             that logs.db, so its archive upload takes long enough to kill.
+#   archive   first boot with offload on (a MinIO user holding ONLY the
+#             README's policy): the bucket passes the preflight, the old
+#             logs.db set is moved aside, Bifrost starts a fresh one with
+#             retention 30, the archive upload starts in the background,
+#             and the container is killed mid-upload. Next boot: no second
+#             move, the stale upload is aborted, the archive completes and
+#             verifies, the local copy goes, and the downloaded archive
+#             opens in sqlite3 with every old row (PRAGMA integrity_check).
+#   on        on that boot:
+#             a. objects at <prefix>/logs/YYYY/MM/DD/HH/<id>.json.gz
+#             b. the SQLite rows' payload columns stripped
+#             c. /api/logs/{id} and /_plugin/runs/:run/calls/:id full
+#             d. plugin spend rollups == SUM(cost) / SUM(tokens) / rows
+#             a dropped upload (store down after boot): logged, payload lost
+#   off-again vars unset over the offloaded volume: config.json == seed,
+#             retention 365, new rows keep their payloads, offloaded rows
+#             show only the last user message
+#   on-again  offload back on: no second move, retention 30, offloaded
+#             rows read in full again
+#   refused   g. a bucket the gateway may not use (read-only user, missing
+#             bucket, wrong secret, one key only, no region, unresolvable or
+#             blackholed endpoint, a store that refuses tagged puts): logs.db
+#             stays where it is, Bifrost serves without offload.
+#             MinIO does not enforce s3:PutObjectTagging on a tagged
+#             PutObject (not even with an explicit Deny), so the tagging case
+#             puts a small proxy in front of MinIO that answers tagged PUTs
+#             403 AccessDenied, as S3 does without that permission.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -43,9 +57,11 @@ NET=$P-net
 MINIO=$P-minio
 REDIS=$P-redis
 UPSTREAM=$P-upstream
+TAGPROXY=$P-tagproxy
 GW=$P-gw
 VOL=$P-data
 VOL_BAD=$P-data-bad
+VOL_RESTORE=$P-restore
 SQLITE_IMG=$P-sqlite:tmp
 BASE=http://127.0.0.1:$PORT
 
@@ -55,6 +71,9 @@ MINIO_ROOT=e2e-root
 MINIO_ROOT_PASS=$(openssl rand -hex 16)
 GW_KEY_ID=gateway-e2e
 GW_SECRET=$(openssl rand -hex 16)
+RO_KEY_ID=gateway-e2e-readonly
+OTHER_SECRET=$(openssl rand -hex 16)
+PADDING_MIB=${PADDING_MIB:-2048}
 ADMIN_USER=admin
 ADMIN_PASS=e2e-admin-$(openssl rand -hex 6)
 TOKEN=e2e-provisioning-$(openssl rand -hex 6)
@@ -74,8 +93,8 @@ has() { grep "$@" >/dev/null; }
 cleanup() {
   [ "${KEEP:-}" = 1 ] && { echo "KEEP=1: leaving $P-* in place"; return; }
   # -v: redis and minio declare VOLUME /data; drop those anonymous volumes too.
-  docker rm -f -v "$GW" "$MINIO" "$REDIS" "$UPSTREAM" >/dev/null 2>&1 || true
-  docker volume rm "$VOL" "$VOL_BAD" >/dev/null 2>&1 || true
+  docker rm -f -v "$GW" "$MINIO" "$REDIS" "$UPSTREAM" "$TAGPROXY" >/dev/null 2>&1 || true
+  docker volume rm "$VOL" "$VOL_BAD" "$VOL_RESTORE" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
   docker rmi "$SQLITE_IMG" >/dev/null 2>&1 || true
 }
@@ -83,6 +102,8 @@ trap cleanup EXIT
 
 mc() { docker run --rm --network "$NET" -e "MC_HOST_m=http://$MINIO_ROOT:$MINIO_ROOT_PASS@$MINIO:9000" minio/mc:latest "$@"; }
 sql() { docker run --rm -v "$1":/data "$SQLITE_IMG" sqlite3 /data/logs.db "$2"; }
+# vsh <volume> <script>: run a shell script with the volume at /data
+vsh() { docker run --rm -v "$1":/data "$SQLITE_IMG" sh -c "$2"; }
 admin() { curl -sS -u "$ADMIN_USER:$ADMIN_PASS" -H 'Content-Type: application/json' "$@"; }
 plugin() { curl -sS -H "Authorization: Bearer $TOKEN" "$@"; }
 
@@ -112,6 +133,11 @@ start_gw() {
 stop_gw() { docker stop -t 20 "$GW" >/dev/null; docker rm "$GW" >/dev/null; }
 gwlog() { docker logs "$GW" 2>&1; }
 seed_equal() { docker exec "$GW" cmp -s /app/config.json.seed /app/data/config.json && echo 1 || echo 0; }
+# retention <days>: bifrost logged that effective retention at boot
+# (server.go reads it back from config.db after the config.json sync)
+retention() { gwlog | has "log retention days: $1" && echo 1 || echo 0; }
+# wait_log <pattern> <seconds>: wait for a gateway log line
+wait_log() { for _ in $(seq 1 "$(( $2 * 2 ))"); do gwlog | has -E "$1" && return 0; sleep 0.5; done; return 1; }
 
 # The built-in openai provider, re-pointed at the fake upstream after
 # every start (idempotent). store_raw_request_response puts raw_request /
@@ -199,18 +225,41 @@ docker run -d --name "$REDIS" --network "$NET" redis:7-alpine >/dev/null
 printf 'FROM alpine:3.23\nRUN apk add --no-cache sqlite\n' | docker build -q -t "$SQLITE_IMG" - >/dev/null
 for _ in $(seq 1 30); do mc ready m >/dev/null 2>&1 && break; sleep 1; done
 mc mb -q "m/$BUCKET" >/dev/null
-# The README's policy, verbatim in effect: ListBucket on the bucket (the
-# boot HeadBucket), object read/write/delete/tagging under the prefix.
-POLICY=$(cat <<EOF
-{"Version":"2012-10-17","Statement":[
- {"Effect":"Allow","Action":["s3:ListBucket"],"Resource":["arn:aws:s3:::$BUCKET"]},
- {"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:PutObjectTagging","s3:GetObjectTagging"],
-  "Resource":["arn:aws:s3:::$BUCKET/$PREFIX/*"]}]}
-EOF
+# mk_user <name> <policy-name> <policy-json> <secret>
+mk_user() {
+  docker run --rm --network "$NET" -e "MC_HOST_m=http://$MINIO_ROOT:$MINIO_ROOT_PASS@$MINIO:9000" --entrypoint sh minio/mc:latest -c \
+    "echo '$3' > /tmp/p.json && mc admin policy create m $2 /tmp/p.json >/dev/null && mc admin user add m $1 $4 >/dev/null && mc admin policy attach m $2 --user $1 >/dev/null"
+}
+OBJ_ACTIONS='"s3:GetObject","s3:PutObject","s3:DeleteObject","s3:PutObjectTagging","s3:GetObjectTagging","s3:AbortMultipartUpload"'
+# The README's policy: ListBucket (+ multipart listing) on the bucket,
+# object read/write/delete/tagging and multipart abort under the prefix.
+mk_user "$GW_KEY_ID" gateway-logs "{\"Version\":\"2012-10-17\",\"Statement\":[
+ {\"Effect\":\"Allow\",\"Action\":[\"s3:ListBucket\",\"s3:ListBucketMultipartUploads\"],\"Resource\":[\"arn:aws:s3:::$BUCKET\"]},
+ {\"Effect\":\"Allow\",\"Action\":[$OBJ_ACTIONS],\"Resource\":[\"arn:aws:s3:::$BUCKET/$PREFIX/*\"]}]}" "$GW_SECRET"
+# Read-only: the bucket answers, but refuses writes.
+mk_user "$RO_KEY_ID" gateway-logs-ro "{\"Version\":\"2012-10-17\",\"Statement\":[
+ {\"Effect\":\"Allow\",\"Action\":[\"s3:ListBucket\"],\"Resource\":[\"arn:aws:s3:::$BUCKET\"]},
+ {\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\"],\"Resource\":[\"arn:aws:s3:::$BUCKET/$PREFIX/*\"]}]}" "$OTHER_SECRET"
+echo "  MinIO users: $GW_KEY_ID (README policy), $RO_KEY_ID (read-only)"
+# A store that refuses tagged puts, as S3 does for a principal without
+# s3:PutObjectTagging: everything else is passed to MinIO unchanged (the
+# Host header too, so SigV4 signatures still verify).
+TAGPROXY_JS=$(cat <<'JS'
+const http = require("http");
+http.createServer((req, res) => {
+  if (req.method === "PUT" && req.headers["x-amz-tagging"]) {
+    res.writeHead(403, { "content-type": "application/xml" });
+    return res.end('<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code>' +
+      '<Message>Access Denied (e2e proxy: tagged put without s3:PutObjectTagging)</Message></Error>');
+  }
+  const up = http.request({ host: process.env.UPSTREAM_HOST, port: 9000, method: req.method, path: req.url, headers: req.headers },
+    (u) => { res.writeHead(u.statusCode, u.headers); u.pipe(res); });
+  up.on("error", (e) => { res.writeHead(502); res.end(String(e)); });
+  req.pipe(up);
+}).listen(9000, "0.0.0.0");
+JS
 )
-docker run --rm --network "$NET" -e "MC_HOST_m=http://$MINIO_ROOT:$MINIO_ROOT_PASS@$MINIO:9000" --entrypoint sh minio/mc:latest -c \
-  "echo '$POLICY' > /tmp/p.json && mc admin policy create m gateway-logs /tmp/p.json >/dev/null && mc admin user add m $GW_KEY_ID $GW_SECRET >/dev/null && mc admin policy attach m gateway-logs --user $GW_KEY_ID >/dev/null"
-echo "  MinIO user $GW_KEY_ID holds only policy gateway-logs on s3://$BUCKET/$PREFIX/"
+docker run -d --name "$TAGPROXY" --network "$NET" -e UPSTREAM_HOST="$MINIO" node:25-alpine3.23 node -e "$TAGPROXY_JS" >/dev/null
 
 S3_ENV=(-e BIFROST_LOGS_S3_BUCKET=$BUCKET -e BIFROST_LOGS_S3_PREFIX=$PREFIX -e BIFROST_LOGS_S3_REGION=us-east-1
         -e BIFROST_LOGS_S3_ENDPOINT=http://$MINIO:9000
@@ -222,32 +271,90 @@ start_gw "$VOL"
 echo "  healthy after ${BOOT_SECS}s"
 check "config.json == seed, byte for byte" "$(seed_equal)"
 check "wrapper logs offload off" "$(gwlog | has 'logs offload: off' && echo 1 || echo 0)"
+check "effective retention 365 (the seed's)" "$(retention 365)"
 mint_vk
 check "chat 200 (pre-offload)" "$(is "$(chat "$MODEL" r-pre 'pre')" = 200)"
 check "chat error (upstream 400) logged too" "$(is "$(chat "$MODEL" r-pre 'please-fail')" != 200)"
 wait_run r-pre 2
-PRE_IDS=$(log_ids r-pre)
 PRE_OK=$(admin "$BASE/api/logs?limit=50&metadata_run-id=r-pre" | jq -r '.logs[] | select(.status=="success") | .id' | head -1)
-echo "  pre-offload rows:"
-sql "$VOL" "SELECT '    '||id, status, has_object, length(input_history), length(output_message), length(params) FROM logs WHERE json_extract(metadata,'\$.\"run-id\"')='r-pre';"
-check "pre-offload success row keeps its payload in SQLite" \
-  "$(is "$(sql "$VOL" "SELECT has_object=0 AND length(output_message)>0 AND input_history LIKE '%SYSTEM-MARKER%' FROM logs WHERE id='$PRE_OK';")" = 1)"
 stop_gw
+# Grow the old logs.db with incompressible rows, so its archive takes a
+# while to upload (and can be interrupted).
+sql "$VOL" "CREATE TABLE e2e_padding(b BLOB);
+  WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x < $PADDING_MIB)
+  INSERT INTO e2e_padding SELECT randomblob(1048576) FROM c;"
+PRE_ROWS=$(sql "$VOL" "SELECT count(*) FROM logs;")
+PRE_SHA=$(vsh "$VOL" "sha256sum /data/logs.db | cut -d' ' -f1")
+echo "  old logs.db: $(vsh "$VOL" "ls -l /data/logs.db* | awk '{print \$5, \$9}' | tr '\n' ' '")  rows in logs: $PRE_ROWS  sha256: ${PRE_SHA:0:16}…"
+check "old logs.db holds the pre-offload rows with payloads" \
+  "$(is "$(sql "$VOL" "SELECT has_object=0 AND length(output_message)>0 FROM logs WHERE id='$PRE_OK';")" = 1)"
 
 # ─────────────────────────────────────────────────────────────────────
-section "on: same volume, offload to MinIO"
+section "archive: first boot with offload on, killed mid-upload"
 start_gw "$VOL" "${S3_ENV[@]}"
 echo "  healthy after ${BOOT_SECS}s"
-gwlog | grep -E 'logs offload|logs store initialized|skills object store' | sed 's/^/    /'
-CFG=$(docker exec "$GW" cat /app/data/config.json)
-SEED=$(docker exec "$GW" cat /app/config.json.seed)
-check "config.json = seed + logs_store (every other key identical)" \
-  "$(is "$(echo "$CFG" | jq -S 'del(.logs_store)')" = "$(echo "$SEED" | jq -S .)")"
-echo "    diff seed config.json:"
-diff <(echo "$SEED") <(echo "$CFG") | sed 's/^/      /' || true
-check "config.json carries env.* references, not the key values" \
-  "$(is "$(echo "$CFG" | grep -c -e "$GW_SECRET" -e "$GW_KEY_ID")" = 0)"
-check "no fallback" "$(gwlog | has 'WITHOUT logs offload' && echo 0 || echo 1)"
+# The archiver starts as soon as bifrost is ready: kill the container as
+# soon as the upload has begun, then look at what it left.
+wait_log "archiving /app/data/logs-legacy/" 30 || true
+docker kill "$GW" >/dev/null
+echo "    container killed (SIGKILL) mid-upload"
+gwlog | grep -E 'preflight|moved the logs.db|logs offload:|log retention days|\[logs-archive\]' | sed 's/^/    /' | cut -c1-250
+check "preflight passed" "$(gwlog | has 'preflight ok:' && echo 1 || echo 0)"
+check "old logs.db set moved aside" "$(gwlog | has 'moved the logs.db that predates offload to /app/data/logs-legacy/' && echo 1 || echo 0)"
+TS=$(gwlog | grep -oE 'logs-legacy/[0-9]{8}T[0-9]{6}Z' | head -1 | cut -d/ -f2)
+MARKER=$(vsh "$VOL" "cat /data/logs-offload.json")
+echo "    marker: $(echo "$MARKER" | jq -c .)"
+check "marker written" "$(echo "$MARKER" | jq -e --arg a "logs-legacy/$TS" '.archived == $a' >/dev/null && echo 1 || echo 0)"
+echo "    volume: $(vsh "$VOL" "cd /data && ls -l logs.db* logs-legacy/$TS/ 2>&1 | awk 'NF>=9 {print \$5, \$9} /:\$/ {print}' | tr '\n' ' '")"
+check "fresh logs.db in place, the old set under logs-legacy/$TS (names kept)" \
+  "$(vsh "$VOL" "test -e /data/logs.db -a -e /data/logs-legacy/$TS/logs.db && echo 1 || echo 0")"
+check "config.json: retention 30 + logs_store" \
+  "$(vsh "$VOL" "cat /data/config.json" | jq -e '.client.log_retention_days == 30 and .logs_store.object_storage.bucket == "'$BUCKET'"' >/dev/null && echo 1 || echo 0)"
+check "effective retention 30 (config.db synced from config.json)" "$(retention 30)"
+# MinIO lists unfinished multipart uploads by exact key only.
+INCOMPLETE=$(mc ls --incomplete "m/$BUCKET/$PREFIX/legacy/logs-$TS.tar.gz" 2>/dev/null || true)
+echo "$INCOMPLETE" | sed 's/^/    incomplete: /'
+check "an unfinished multipart upload was left in the bucket" "$(echo "$INCOMPLETE" | has "logs-$TS.tar.gz" && echo 1 || echo 0)"
+check "no finished archive yet" "$(mc ls -r "m/$BUCKET/$PREFIX/legacy/" 2>/dev/null | has "logs-$TS.tar.gz" && echo 0 || echo 1)"
+check "local copy intact after the kill (same sha256)" \
+  "$(is "$(vsh "$VOL" "sha256sum /data/logs-legacy/$TS/logs.db | cut -d' ' -f1")" = "$PRE_SHA")"
+docker rm "$GW" >/dev/null
+
+section "archive: next boot finishes the upload"
+start_gw "$VOL" "${S3_ENV[@]}"
+echo "  healthy after ${BOOT_SECS}s"
+check "no second move" "$(gwlog | has 'moved the logs.db' && echo 0 || echo 1)"
+check "bifrost runs on the fresh logs.db (the pre-offload call is not in it)" \
+  "$(is "$(admin "$BASE/api/logs/$PRE_OK" -o /dev/null -w '%{http_code}')" = 404)"
+wait_log "archived /app/data/logs-legacy/$TS|archive of .* failed" 300 || true
+gwlog | grep -E '\[logs-archive\]' | sed 's/^/    /' | cut -c1-250
+check "stale upload aborted" "$(gwlog | has 'aborted an earlier, unfinished upload' && echo 1 || echo 0)"
+check "archive uploaded, verified, local copy deleted" "$(gwlog | has "archived /app/data/logs-legacy/$TS .*verified.*deleted the local copy" && echo 1 || echo 0)"
+check "logs-legacy/$TS gone from the volume" "$(vsh "$VOL" "test -e /data/logs-legacy/$TS && echo 0 || echo 1")"
+mc ls -r "m/$BUCKET/$PREFIX/legacy/" | sed 's/^/    /'
+check "no unfinished uploads left" "$(mc ls --incomplete "m/$BUCKET/$PREFIX/legacy/logs-$TS.tar.gz" 2>/dev/null | has . && echo 0 || echo 1)"
+MANIFEST=$(mc cat "m/$BUCKET/$PREFIX/legacy/logs-$TS.tar.gz.manifest.json")
+echo "    manifest: $(echo "$MANIFEST" | jq -c '{files: [.files[] | {name, bytes, sha256: .sha256[0:16]}], gzip_bytes, parts, part_size}')"
+echo "  restore: download, extract, open in sqlite3"
+docker volume create "$VOL_RESTORE" >/dev/null
+docker run --rm --network "$NET" -v "$VOL_RESTORE":/r -e "MC_HOST_m=http://$MINIO_ROOT:$MINIO_ROOT_PASS@$MINIO:9000" \
+  minio/mc:latest cp -q "m/$BUCKET/$PREFIX/legacy/logs-$TS.tar.gz" /r/archive.tar.gz >/dev/null
+vsh "$VOL_RESTORE" "cd /data && tar xzf archive.tar.gz && ls -l logs-$TS/ | sed 's/^/    /'"
+R_CHECK=$(vsh "$VOL_RESTORE" "sqlite3 /data/logs-$TS/logs.db 'PRAGMA integrity_check;'")
+R_ROWS=$(vsh "$VOL_RESTORE" "sqlite3 /data/logs-$TS/logs.db 'SELECT count(*) FROM logs;'")
+R_PAD=$(vsh "$VOL_RESTORE" "sqlite3 /data/logs-$TS/logs.db 'SELECT count(*) FROM e2e_padding;'")
+R_SHA=$(vsh "$VOL_RESTORE" "sha256sum /data/logs-$TS/logs.db | cut -d' ' -f1")
+R_OK=$(vsh "$VOL_RESTORE" "sqlite3 /data/logs-$TS/logs.db \"SELECT input_history LIKE '%SYSTEM-MARKER-r-pre%' AND length(output_message)>0 FROM logs WHERE id='$PRE_OK';\"")
+echo "    integrity_check: $R_CHECK  logs rows: $R_ROWS (was $PRE_ROWS)  padding rows: $R_PAD  sha256: ${R_SHA:0:16}…"
+check "restored archive: PRAGMA integrity_check = ok" "$(is "$R_CHECK" = ok)"
+check "restored archive: every old row, the pre-offload call with its full payload" "$(is "$R_ROWS" = "$PRE_ROWS" -a "$R_OK" = 1 -a "$R_PAD" = "$PADDING_MIB")"
+check "restored logs.db sha256 == the moved file's == the manifest's" \
+  "$(is "$R_SHA" = "$PRE_SHA" -a "$R_SHA" = "$(echo "$MANIFEST" | jq -r '.files[] | select(.name=="logs.db") | .sha256')")"
+docker volume rm "$VOL_RESTORE" >/dev/null
+
+# ─────────────────────────────────────────────────────────────────────
+section "on: offload on the fresh logs.db (same boot)"
+check "effective retention 30" "$(retention 30)"
 check "chat 200" "$(is "$(chat "$MODEL" r-post 'post')" = 200)"
 check "chat 200 (stream)" "$(is "$(chat "$MODEL" r-post 'post-stream' stream)" = 200)"
 check "chat error (upstream 400)" "$(is "$(chat "$MODEL" r-post 'please-fail')" != 200)"
@@ -264,24 +371,16 @@ for id in $POST_IDS; do
   check "a. object for $id at $PREFIX/logs/YYYY/MM/DD/HH/$id.json.gz" \
     "$(echo "$OBJS" | has -E "[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{2}/$id\.json\.gz" && echo 1 || echo 0)"
 done
-for id in $PRE_IDS; do
-  check "a. no object for pre-offload $id (existing rows are not migrated)" "$(echo "$OBJS" | has "$id" && echo 0 || echo 1)"
-done
 KEY=$(echo "$OBJS" | grep -oE "[0-9/]+$POST_OK\.json\.gz" | head -1)
 STAT=$(mc stat --json "m/$BUCKET/$PREFIX/logs/$KEY")
 check "a. object stored gzip (Content-Encoding: gzip)" "$(echo "$STAT" | jq -r '.metadata["Content-Encoding"] // .metadata["content-encoding"]' | has gzip && echo 1 || echo 0)"
 echo "    tags: $(mc tag list --json "m/$BUCKET/$PREFIX/logs/$KEY" | jq -c '.tagset')"
-TMPD=$(mktemp -d)
-mc cat "m/$BUCKET/$PREFIX/logs/$KEY" > "$TMPD/obj"
-check "a. object body is gzip (1f 8b)" "$(is "$(head -c 2 "$TMPD/obj" | od -An -tx1 | tr -d ' ')" = 1f8b)"
-echo "    $KEY: $(wc -c < "$TMPD/obj" | tr -d ' ') bytes stored"
-OBJ=$( (gunzip -c < "$TMPD/obj" 2>/dev/null) || cat "$TMPD/obj")
-rm -rf "$TMPD"
+OBJ=$(mc cat "m/$BUCKET/$PREFIX/logs/$KEY" | (gunzip -c 2>/dev/null || true))
 check "a. object holds the full payload (system prompt, output, params)" \
   "$(echo "$OBJ" | jq -e '(.input_history|contains("SYSTEM-MARKER-r-post")) and (.output_message|length>0) and (.params|length>0)' >/dev/null && echo 1 || echo 0)"
 
 echo "  b. SQLite rows (has_object, len input_history / output_message / params / raw_response / error_details, summary):"
-sql "$VOL" "SELECT '    '||id, status, has_object, length(input_history), length(output_message), length(params), length(raw_response), length(error_details), substr(content_summary,1,40) FROM logs WHERE json_extract(metadata,'\$.\"run-id\"') IN ('r-pre','r-post') ORDER BY timestamp;"
+sql "$VOL" "SELECT '    '||id, status, has_object, length(input_history), length(output_message), length(params), length(raw_response), length(error_details), substr(content_summary,1,40) FROM logs WHERE json_extract(metadata,'\$.\"run-id\"')='r-post' ORDER BY timestamp;"
 check "b. success row: has_object=1, output/params stripped, input_history = last user message only" \
   "$(is "$(sql "$VOL" "SELECT has_object=1 AND coalesce(output_message,'')='' AND coalesce(params,'')='' AND input_history NOT LIKE '%SYSTEM-MARKER%' AND input_history LIKE '%three words%' FROM logs WHERE id='$POST_OK';")" = 1)"
 check "b. error row: has_object=1, error_details stripped" \
@@ -293,13 +392,10 @@ echo "  c. detail reads:"
 D=$(admin "$BASE/api/logs/$POST_OK")
 check "c. /api/logs/{id}: input_history has the system prompt again" "$(echo "$D" | jq -e '.input_history | tostring | contains("SYSTEM-MARKER-r-post")' >/dev/null && echo 1 || echo 0)"
 check "c. /api/logs/{id}: output_message and params back" "$(echo "$D" | jq -e '(.output_message != null) and (.params != null)' >/dev/null && echo 1 || echo 0)"
-DE=$(admin "$BASE/api/logs/$POST_ERR")
-check "c. /api/logs/{id} (error row): error_details back" "$(echo "$DE" | jq -e '.error_details != null' >/dev/null && echo 1 || echo 0)"
+check "c. /api/logs/{id} (error row): error_details back" "$(admin "$BASE/api/logs/$POST_ERR" | jq -e '.error_details != null' >/dev/null && echo 1 || echo 0)"
 PD=$(plugin "$BASE/_plugin/runs/r-post/calls/$POST_OK")
 check "c. /_plugin/runs/r-post/calls/{id}: full input_history and output_message" \
-  "$(echo "$PD" | jq -e '(tostring|contains("SYSTEM-MARKER-r-post")) and (.output_message != null)' >/dev/null && echo 1 || echo 0)" \
-  "$(echo "$PD" | head -c 300)"
-echo "    plugin detail keys: $(echo "$PD" | jq -c 'keys')"
+  "$(echo "$PD" | jq -e '(tostring|contains("SYSTEM-MARKER-r-post")) and (.output_message != null)' >/dev/null && echo 1 || echo 0)"
 
 echo "  d. rollups:"
 DB_SUM=$(sql "$VOL" "SELECT printf('%.8f', coalesce(sum(cost),0)) FROM logs WHERE json_extract(metadata,'\$.\"agent-name\"')='logs-s3-e2e';")
@@ -320,14 +416,6 @@ RUN_SUM=$(sql "$VOL" "SELECT printf('%.8f', coalesce(sum(cost),0)) FROM logs WHE
 echo "    /_plugin/runs/r-post: $(echo "$RUN" | jq -c '{calls: (.logs|length), sum_cost: ([.logs[].cost]|add), stats}')   logs.db: sum(cost)=$RUN_SUM"
 check "d. /_plugin/runs/r-post: 3 calls, their costs sum to SUM(cost) in logs.db" \
   "$(echo "$RUN" | jq --arg s "$RUN_SUM" '(.logs|length) == 3 and ((([.logs[].cost]|add) - ($s|tonumber)) | fabs) < 1e-9' | has true && echo 1 || echo 0)"
-HIST=$(plugin "$BASE/_plugin/histogram/cost?window=24h&bucket=1h&dimension=agent-name")
-echo "    /_plugin/histogram/cost: $(echo "$HIST" | jq -c . | head -c 300)"
-
-echo "  f. pre-offload rows:"
-DP=$(admin "$BASE/api/logs/$PRE_OK")
-check "f. /api/logs/{pre id}: full payload from SQLite" "$(echo "$DP" | jq -e '(.input_history|tostring|contains("SYSTEM-MARKER-r-pre")) and (.output_message != null)' >/dev/null && echo 1 || echo 0)"
-PDP=$(plugin "$BASE/_plugin/runs/r-pre/calls/$PRE_OK")
-check "f. /_plugin/runs/r-pre/calls/{id}: full payload" "$(echo "$PDP" | jq -e 'tostring|contains("SYSTEM-MARKER-r-pre")' >/dev/null && echo 1 || echo 0)"
 check "no objectstore warnings" "$(gwlog | has 'objectstore:' && echo 0 || echo 1)" "$(gwlog | grep 'objectstore:' | head -3)"
 
 echo "  dropped upload (MinIO stopped after boot):"
@@ -335,7 +423,7 @@ docker stop "$MINIO" >/dev/null
 check "chat 200 while the store is down" "$(is "$(chat "$MODEL" r-drop 'drop')" = 200)"
 wait_run r-drop 1
 DROP=$(log_ids r-drop | head -1)
-for _ in $(seq 1 45); do gwlog | has "failed to upload log $DROP" && break; sleep 1; done
+wait_log "failed to upload log $DROP" 45 || true
 gwlog | grep "objectstore:" | sed 's/^/    /' | cut -c1-240
 check "dropped upload logged by bifrost (objectstore: failed to upload log <id>)" \
   "$(gwlog | has "objectstore: failed to upload log $DROP" && echo 1 || echo 0)"
@@ -350,6 +438,7 @@ stop_gw
 section "off-again: vars unset over the offloaded volume"
 start_gw "$VOL"
 check "config.json == seed again" "$(seed_equal)"
+check "effective retention back to 365" "$(retention 365)"
 check "chat 200, payload back in SQLite" "$(is "$(chat "$MODEL" r-after 'after')" = 200)"
 wait_run r-after 1
 AFTER=$(log_ids r-after | head -1)
@@ -359,12 +448,13 @@ DO=$(admin "$BASE/api/logs/$POST_OK")
 echo "    offloaded row read with offload off: input_history=$(echo "$DO" | jq -c '.input_history' | head -c 160) output_message=$(echo "$DO" | jq -c '.output_message' | head -c 60)"
 check "offloaded row with offload off: last user message only, no output" \
   "$(echo "$DO" | jq -e '(.input_history|tostring|contains("SYSTEM-MARKER")|not) and (.output_message == null)' >/dev/null && echo 1 || echo 0)"
-check "f'. pre-offload row still full" "$(admin "$BASE/api/logs/$PRE_OK" | jq -e '.output_message != null' >/dev/null && echo 1 || echo 0)"
 stop_gw
 
 # ─────────────────────────────────────────────────────────────────────
 section "on-again: offload back on, same bucket and prefix"
 start_gw "$VOL" "${S3_ENV[@]}"
+check "no second move (marker present)" "$(gwlog | has 'moved the logs.db' && echo 0 || echo 1)"
+check "effective retention 30" "$(retention 30)"
 check "offloaded row reads in full again" \
   "$(admin "$BASE/api/logs/$POST_OK" | jq -e '(.input_history|tostring|contains("SYSTEM-MARKER-r-post")) and (.output_message != null)' >/dev/null && echo 1 || echo 0)"
 check "row written while offload was off still reads in full" \
@@ -372,25 +462,37 @@ check "row written while offload was off still reads in full" \
 stop_gw
 
 # ─────────────────────────────────────────────────────────────────────
-section "g. bad destinations: the gateway must still boot and serve"
-bad_case() { # bad_case <name> <docker env args...>
+section "g. refused buckets: logs.db stays, the gateway serves without offload"
+start_gw "$VOL_BAD" >/dev/null && mint_vk
+check "chat 200 (a row in this volume's logs.db)" "$(is "$(chat "$MODEL" r-bad-seed seed)" = 200)"
+wait_run r-bad-seed 1
+SEED_ID=$(log_ids r-bad-seed | head -1)
+stop_gw
+refused() { # refused <name> <docker env args...>
   local name=$1; shift
   echo "  -- $name"
+  local before
+  before=$(sql "$VOL_BAD" "SELECT count(*) FROM logs;")
   if ! start_gw "$VOL_BAD" "$@"; then check "g. $name: gateway boots" 0; return; fi
   echo "    healthy after ${BOOT_SECS}s"
-  gwlog | grep -E '\[wrapper\].*(ERROR|logs offload)|failed to (ping|create) (skills )?object store|failed to bootstrap' | sed -E 's/^/    /' | cut -c1-260
-  check "g. $name: gateway healthy" 1
-  check "g. $name: config.json == seed after fallback" "$(seed_equal)"
+  gwlog | grep -E '\[wrapper\].*(ERROR|logs offload)|\[logs-archive\]' | sed -E 's/^/    /' | cut -c1-250
+  check "g. $name: preflight refused, offload off" "$(gwlog | has -E 'logs offload (off for this boot|refused)' && echo 1 || echo 0)"
+  check "g. $name: no Bifrost fallback needed" "$(gwlog | has 'WITHOUT logs offload' && echo 0 || echo 1)"
+  check "g. $name: config.json == seed, retention 365" "$(is "$(seed_equal)$(retention 365)" = 11)"
   check "g. $name: chat 200" "$(is "$(chat "$MODEL" "r-bad-$name" bad)" = 200)"
+  wait_run "r-bad-$name" 1
   stop_gw
+  check "g. $name: logs.db unmoved (same file: old row kept, new row added, no logs-legacy, no marker)" \
+    "$(is "$(sql "$VOL_BAD" "SELECT count(*) FROM logs WHERE id='$SEED_ID';")$(sql "$VOL_BAD" "SELECT count(*) FROM logs;")$(vsh "$VOL_BAD" "test -e /data/logs-legacy -o -e /data/logs-offload.json && echo moved || echo kept")" = "1$((before + 1))kept")"
 }
-start_gw "$VOL_BAD" >/dev/null && mint_vk && stop_gw
-bad_case missing-bucket "${S3_ENV[@]}" -e BIFROST_LOGS_S3_BUCKET=no-such-bucket
-bad_case wrong-secret "${S3_ENV[@]}" -e BIFROST_LOGS_S3_SECRET_ACCESS_KEY=wrong
-bad_case one-key-only -e BIFROST_LOGS_S3_BUCKET=$BUCKET -e BIFROST_LOGS_S3_ACCESS_KEY_ID=$GW_KEY_ID
-bad_case no-region "${S3_ENV[@]}" -e BIFROST_LOGS_S3_REGION=
-bad_case dns-fail "${S3_ENV[@]}" -e BIFROST_LOGS_S3_ENDPOINT=http://no-such-host.invalid:9000
-bad_case blackhole "${S3_ENV[@]}" -e BIFROST_LOGS_S3_ENDPOINT=http://10.255.255.1:9000
+refused read-only "${S3_ENV[@]}" -e BIFROST_LOGS_S3_ACCESS_KEY_ID=$RO_KEY_ID -e BIFROST_LOGS_S3_SECRET_ACCESS_KEY=$OTHER_SECRET
+refused missing-bucket "${S3_ENV[@]}" -e BIFROST_LOGS_S3_BUCKET=no-such-bucket
+refused wrong-secret "${S3_ENV[@]}" -e BIFROST_LOGS_S3_SECRET_ACCESS_KEY=wrong
+refused one-key-only -e BIFROST_LOGS_S3_BUCKET=$BUCKET -e BIFROST_LOGS_S3_ACCESS_KEY_ID=$GW_KEY_ID
+refused no-region "${S3_ENV[@]}" -e BIFROST_LOGS_S3_REGION=
+refused dns-fail "${S3_ENV[@]}" -e BIFROST_LOGS_S3_ENDPOINT=http://no-such-host.invalid:9000
+refused blackhole "${S3_ENV[@]}" -e BIFROST_LOGS_S3_ENDPOINT=http://10.255.255.1:9000
+refused tagging-refused "${S3_ENV[@]}" -e BIFROST_LOGS_S3_ENDPOINT=http://$TAGPROXY:9000
 
 echo
 if [ "$FAILS" = 0 ]; then echo "ALL PASS"; else echo "$FAILS FAILED"; exit 1; fi
