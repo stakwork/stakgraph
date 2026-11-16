@@ -319,6 +319,105 @@ OpenRouter's key. Call it as `openrouter-images/<model>` on
 - **Access:** a virtual key reaches the provider only when it lists
   `openrouter-images` among its providers.
 
+## Log payloads in S3
+
+Bifrost keeps every call's full payload (input history, output, params,
+tools, error details, raw request and response) in `/app/data/logs.db`,
+and nothing ever shrinks that file. Set `BIFROST_LOGS_S3_BUCKET` and the
+wrapper turns on Bifrost's hybrid log store
+([upstream docs](https://docs.getbifrost.ai/deployment-guides/config-json/storage),
+"Object Storage for Logs"): it adds a `logs_store` block to the
+`config.json` it writes at boot (`wrapper/logsoffload.go`). Unset, the
+written `config.json` is the seed byte for byte and nothing changes.
+
+| Variable                            | Meaning                                                                                                   |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `BIFROST_LOGS_S3_BUCKET`            | Set (non-empty) turns offload on. One bucket per fleet.                                                   |
+| `BIFROST_LOGS_S3_PREFIX`            | Key prefix, one per box. Default `bifrost`. Leading/trailing `/` are dropped.                             |
+| `BIFROST_LOGS_S3_REGION`            | The bucket's region. Optional, but AWS needs one from here or `AWS_REGION`; R2 takes `auto`.              |
+| `BIFROST_LOGS_S3_ENDPOINT`          | For S3-compatible stores (R2, MinIO). Also turns on path-style addressing.                                |
+| `BIFROST_LOGS_S3_ACCESS_KEY_ID`, `BIFROST_LOGS_S3_SECRET_ACCESS_KEY` | Both or neither. Neither: the AWS default credential chain (instance role, `AWS_*` env). One without the other is refused with an `ERROR: logs offload refused` line, and the gateway runs without offload. |
+
+The keys are written to `config.json` as `env.BIFROST_LOGS_S3_*`
+references, which Bifrost resolves itself, so their values never land on
+the data volume. Objects are always gzipped.
+
+**Where things live.** Each call's payload is uploaded, after its row is
+written, to `<prefix>/logs/YYYY/MM/DD/HH/<log-id>.json.gz` (UTC), tagged
+with provider, model, status and key ids. `logs.db` keeps a small row:
+id, time, provider, model, status, tokens, cost, latency, the
+`x-bf-dim-*` metadata, a summary of up to 2 KB, and the last user
+message. `/api/logs`, the dashboard list and every `/_plugin/spend/*` /
+`/_plugin/histogram/*` rollup read only that row. `/api/logs/{id}` and
+`/_plugin/runs/:run_id/calls/:call_id` fetch the object and return the
+full payload.
+
+**Existing `logs.db`.** Untouched: its rows keep their payloads and read
+as before, and the file does not shrink. The SQLite path in the block is
+`<app-dir>/logs.db`, the file Bifrost uses without a `logs_store`
+section, so turning offload on keeps the same database.
+
+**Turning it off.** Unset the bucket: `config.json` is the seed again and
+new rows keep their payloads in `logs.db`. Rows written while offload
+was on then show only their summary and last user message; their objects
+stay in the bucket, and turning offload back on with the same bucket and
+prefix reads them again.
+
+**A bucket Bifrost cannot use does not take the gateway down.** Bifrost
+checks the bucket at boot (`HeadBucket`) and exits on any failure:
+missing bucket, denied, bad keys, no region, unreachable endpoint. When
+that happens with offload on, the wrapper logs
+
+```
+[wrapper] ERROR: bifrost-http did not start with logs offload to s3://…: …
+[wrapper] ERROR: restarting bifrost-http WITHOUT logs offload: payloads stay in logs.db …
+```
+
+and starts Bifrost again with the plain seed config. Each container start
+tries offload again. An endpoint that drops packets makes Bifrost hang
+rather than exit, so that case costs the wrapper's readiness timeout
+(60 s) before the fallback.
+
+**Dropped uploads.** Uploads are fire-and-forget: a failed upload is not
+retried, and that call's row keeps only its summary. Bifrost logs each
+one (`objectstore: failed to upload log <id>: …`, `objectstore: upload
+queue full, dropping upload for log <id>`); grep the container log for
+`objectstore:`.
+
+**Expiry is a bucket lifecycle rule.** Bifrost's retention
+(`client.log_retention_days`) deletes `logs.db` rows only and never
+deletes objects. Expire `<prefix>/logs/` (and `<prefix>/mcp-logs/`, for
+MCP tool logs) with a lifecycle rule on the bucket.
+
+**IAM.** `s3:ListBucket` on the bucket (the boot check), and object
+read, write, delete and tagging under the prefix (`PutObject` sets tags):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Effect": "Allow", "Action": ["s3:ListBucket"],
+      "Resource": ["arn:aws:s3:::FLEET-BUCKET"] },
+    { "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject",
+                 "s3:PutObjectTagging", "s3:GetObjectTagging"],
+      "Resource": ["arn:aws:s3:::FLEET-BUCKET/BOX-PREFIX/*"] }
+  ]
+}
+```
+
+(Bifrost's own skills feature, unused here, would also store files in
+this bucket, under `skills/` at the bucket root, which this policy does
+not allow.)
+
+`scripts/logs-s3-e2e.sh` runs all of this against MinIO, with a MinIO
+user that holds only the policy above:
+
+```bash
+make docker-build
+ENV_FILE=.env scripts/logs-s3-e2e.sh
+```
+
 ## Local plugin build (without docker)
 
 Useful while iterating on the Go code. You still need a dynamic

@@ -86,6 +86,24 @@ services:
       # so localhost HTTP can keep its cookie; flip to 1 behind a
       # TLS-terminating ingress (sphinx-swarm does this).
       PRODUCTION: ${PRODUCTION:-}
+      # Log payload offload to S3 (README "Log payloads in S3"). Off by
+      # default: with BIFROST_LOGS_S3_BUCKET empty, config.json is the
+      # seed and every payload stays in logs.db, as before. Set the
+      # bucket to turn it on; the wrapper adds a logs_store block to
+      # config.json at boot. If Bifrost cannot start with it (bucket
+      # missing, denied, unreachable), the wrapper restarts it once
+      # without offload rather than take the gateway down.
+      #   PREFIX    key prefix, one per box (default "bifrost")
+      #   REGION    the bucket's region (AWS needs one; R2 takes "auto")
+      #   ENDPOINT  S3-compatible store (R2, MinIO); turns on path-style
+      #   ACCESS_KEY_ID / SECRET_ACCESS_KEY  both or neither; neither =
+      #             the AWS default credential chain (instance role)
+      BIFROST_LOGS_S3_BUCKET: ${BIFROST_LOGS_S3_BUCKET:-}
+      BIFROST_LOGS_S3_PREFIX: ${BIFROST_LOGS_S3_PREFIX:-}
+      BIFROST_LOGS_S3_REGION: ${BIFROST_LOGS_S3_REGION:-}
+      BIFROST_LOGS_S3_ENDPOINT: ${BIFROST_LOGS_S3_ENDPOINT:-}
+      BIFROST_LOGS_S3_ACCESS_KEY_ID: ${BIFROST_LOGS_S3_ACCESS_KEY_ID:-}
+      BIFROST_LOGS_S3_SECRET_ACCESS_KEY: ${BIFROST_LOGS_S3_SECRET_ACCESS_KEY:-}
       # Provider keys are referenced by env.* in data/config.json.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
