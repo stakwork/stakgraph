@@ -30,12 +30,20 @@
 // Startup ordering
 // ----------------
 // Wrapper:
+//  0. When BIFROST_LOGS_S3_BUCKET is set: checks the bucket
+//     (logs-archive preflight) and, once, moves a logs.db that predates
+//     offload aside (legacy.go). Then writes /app/data/config.json from
+//     the image's seed, plus a logs_store block and 30-day retention
+//     when offload is on (logsoffload.go).
 //  1. Starts bifrost-http child process.
 //  2. Polls 127.0.0.1:8080 until /health responds (bifrost ready).
+//     If bifrost-http fails to come up with logs offload on, it is
+//     restarted once without offload (plain seed config).
 //  3. Polls 127.0.0.1:8189 until /_plugin/health responds (plugin
 //     ready — skipped if plugin server didn't start, e.g. dev mode
 //     without BIFROST_PROVISIONING_TOKEN).
-//  4. Opens the public listener.
+//  4. Opens the public listener, and archives moved-aside logs.db sets
+//     to the bucket in the background (legacy.go).
 //
 // If bifrost-http exits unexpectedly, the wrapper exits with the same
 // status; the container then restarts under docker-compose's
@@ -43,6 +51,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -109,16 +118,23 @@ const (
 	childKillGrace = 10 * time.Second
 )
 
+// errChildExited marks a readiness wait that ended because bifrost-http
+// exited (as opposed to a timeout or cancellation).
+var errChildExited = errors.New("bifrost-http exited")
+
 func main() {
 	var (
-		publicAddr  string
-		bifrostBin  string
-		bifrostArgs argsFlag
+		publicAddr     string
+		bifrostBin     string
+		logsArchiveBin string
+		bifrostArgs    argsFlag
 	)
 	flag.StringVar(&publicAddr, "listen", defaultPublicAddr,
 		"public address to listen on (host:port)")
 	flag.StringVar(&bifrostBin, "bifrost-bin", "/app/bifrost-http",
 		"path to the bifrost-http binary")
+	flag.StringVar(&logsArchiveBin, "logs-archive-bin", defaultLogsArchiveBin,
+		"path to the logs-archive helper (log offload preflight and legacy logs.db upload)")
 	flag.Var(&bifrostArgs, "bifrost-arg",
 		"argument to pass to bifrost-http (repeatable; default arg set used if none given)")
 	flag.Parse()
@@ -139,40 +155,18 @@ func main() {
 	// config.json, so deploying a new image silently ships with the
 	// old config.
 	appDir := appDirFromArgs(bifrostArgs)
-	if err := syncSeedConfig(logger, configSeedPath, appDir); err != nil {
-		// Non-fatal: if the seed is missing (dev builds) or unwritable,
-		// fall through to whatever's already in the volume. Log loudly
-		// so the failure is visible in container logs.
-		logger.Printf("WARNING: failed to sync config.json from seed: %v", err)
+
+	// Log payload offload (logsoffload.go). An invalid combination is
+	// refused, not fatal: the gateway boots as it did before offload.
+	offload, err := logsOffloadFromEnv(os.Getenv)
+	if err != nil {
+		logger.Printf("ERROR: logs offload refused: %v; payloads stay in logs.db", err)
 	}
 
-	// Start bifrost-http. The cancelable context is what we use to
-	// terminate it cleanly on shutdown.
+	// The cancelable context is what we use to terminate bifrost-http
+	// cleanly on shutdown.
 	rootCtx, cancelRoot := context.WithCancel(context.Background())
 	defer cancelRoot()
-
-	cmd := exec.CommandContext(rootCtx, bifrostBin, bifrostArgs...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = nil
-	// Inherit env so BIFROST_ADMIN_USER / PASS / PROVISIONING_TOKEN
-	// and provider keys flow through.
-	cmd.Env = os.Environ()
-	// Put bifrost-http in its own process group so we can deliver
-	// signals to the whole tree (Bifrost spawns helper goroutines
-	// that share the PID, but a separate group lets a future patch
-	// add real subprocesses without breaking signal forwarding).
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	if err := cmd.Start(); err != nil {
-		logger.Fatalf("failed to start bifrost-http: %v", err)
-	}
-	logger.Printf("started bifrost-http pid=%d", cmd.Process.Pid)
-
-	// Track child exit. If bifrost crashes/exits on its own, we exit
-	// with the same status so docker-compose's restart policy kicks in.
-	childDone := make(chan error, 1)
-	go func() { childDone <- cmd.Wait() }()
 
 	// Listen for OS signals BEFORE we start waiting on upstreams, so
 	// a SIGTERM delivered during slow startup still triggers graceful
@@ -180,14 +174,73 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	// Wait for bifrost-http to bind its listener. If it dies during
-	// startup, surface that immediately instead of timing out.
-	readinessCtx, cancelReadiness := context.WithTimeout(rootCtx, readinessTimeout)
-	defer cancelReadiness()
-	if err := waitForUpstream(readinessCtx, logger, "bifrost-http",
-		bifrostUpstream+"/health", childDone); err != nil {
+	// With offload requested: prove the bucket works before anything
+	// depends on it, then move a logs.db that predates offload aside
+	// (legacy.go). Either failing keeps offload off for this boot and
+	// leaves logs.db where it is.
+	// archiveDest is the bucket that passed the preflight: the archiver
+	// uses it even when this boot runs without offload (a failed move).
+	var archiveDest *logsOffload
+	if offload != nil {
+		if err := runPreflight(rootCtx, logsArchiveBin, offload); err != nil {
+			logger.Printf("ERROR: logs offload off for this boot: the bucket failed the preflight "+
+				"(%v; see the [logs-archive] lines above); logs.db is left as it is", err)
+			offload = nil
+		} else {
+			archiveDest = offload
+			moved, err := moveLegacyLogsDB(appDir, time.Now())
+			switch {
+			case err != nil:
+				logger.Printf("ERROR: logs offload off for this boot: moving the old logs.db aside failed: %v", err)
+				offload = nil
+			case moved != "":
+				logger.Printf("moved the logs.db that predates offload to %s; bifrost starts a fresh one "+
+					"(dashboard history restarts here); the old set is archived to s3://%s/%s/legacy/ in the background",
+					moved, offload.Bucket, offload.Prefix)
+			}
+		}
+	}
+
+	// Write config.json, start bifrost-http, and wait for it to bind
+	// its listener. If it dies during startup, surface that immediately
+	// instead of timing out.
+	b := bootEnv{
+		logger:   logger,
+		seedPath: configSeedPath,
+		appDir:   appDir,
+		start: func() (*exec.Cmd, chan error) {
+			return startBifrost(rootCtx, logger, bifrostBin, bifrostArgs)
+		},
+		wait: func(childDone <-chan error) error {
+			return waitForBifrost(rootCtx, logger, childDone)
+		},
+	}
+	cmd, childDone, err := b.boot(offload)
+	if err != nil {
 		shutdownChild(logger, cmd)
 		logger.Fatalf("bifrost-http never became ready: %v", err)
+	}
+
+	// Archive moved-aside logs.db sets in the background (also ones a
+	// previous boot did not finish). Only when the bucket passed the
+	// preflight; stopped on shutdown, before bifrost-http.
+	archiveCtx, stopArchive := context.WithCancel(rootCtx)
+	archiveDone := make(chan struct{})
+	go func() {
+		defer close(archiveDone)
+		if archiveDest != nil {
+			(&archiver{
+				logger: logger, bin: logsArchiveBin, appDir: appDir, offload: archiveDest,
+				retryMin: 5 * time.Minute, retryMax: time.Hour,
+			}).run(archiveCtx)
+		}
+	}()
+	stopArchiving := func() {
+		stopArchive()
+		select {
+		case <-archiveDone:
+		case <-time.After(25 * time.Second):
+		}
 	}
 
 	// Plugin server is optional — it only starts if BIFROST_ADMIN_*
@@ -230,17 +283,22 @@ func main() {
 	case err := <-childDone:
 		logger.Printf("bifrost-http exited unexpectedly: %v", err)
 		shutdownPublicServer(server, logger)
+		stopArchiving()
 		os.Exit(exitCodeFromErr(err))
 	case err := <-serverDone:
 		if !errors.Is(err, http.ErrServerClosed) {
 			logger.Printf("public server failed: %v", err)
 		}
+		stopArchiving()
 		shutdownChild(logger, cmd)
 		os.Exit(1)
 	}
 
-	// Graceful path: close public listener, then bifrost-http.
+	// Graceful path: close public listener, stop archiving (the helper
+	// aborts its upload; the files stay for the next start), then
+	// bifrost-http.
 	shutdownPublicServer(server, logger)
+	stopArchiving()
 	shutdownChild(logger, cmd)
 	// Drain childDone so we don't leak the goroutine on exit.
 	select {
@@ -248,6 +306,123 @@ func main() {
 	case <-time.After(childKillGrace):
 	}
 	logger.Printf("shutdown complete")
+}
+
+// bootEnv is what boot needs to bring bifrost-http up. start and wait
+// are fields so the offload fallback is unit-testable without a real
+// bifrost-http (see logsoffload_test.go).
+type bootEnv struct {
+	logger   *log.Logger
+	seedPath string
+	appDir   string
+	start    func() (*exec.Cmd, chan error)
+	wait     func(childDone <-chan error) error
+}
+
+// boot writes config.json (with the logs_store block when offload is
+// set), starts bifrost-http and waits for it to be ready.
+//
+// With offload on, Bifrost refuses to start when the object store
+// does: NewLogStore HEADs the bucket and bifrost-http exits 1 on any
+// error (missing bucket, denied, bad keys, no region, unreachable
+// endpoint). That would turn a storage misconfiguration into an outage
+// of every LLM call on the box. So a failed start with offload on is
+// retried once without it: the plain seed config, payloads in logs.db
+// exactly as before offload existed. The next container start tries
+// offload again. A start that fails without offload is returned as is.
+func (b bootEnv) boot(offload *logsOffload) (*exec.Cmd, chan error, error) {
+	offload = b.syncConfig(offload)
+	cmd, childDone := b.start()
+	err := b.wait(childDone)
+	if err == nil || offload == nil {
+		return cmd, childDone, err
+	}
+
+	b.logger.Printf("ERROR: bifrost-http did not start with logs offload to %s: %v", offload, err)
+	b.logger.Printf("ERROR: restarting bifrost-http WITHOUT logs offload: payloads stay in logs.db " +
+		"until the bucket is fixed (check bucket, region, endpoint, credentials, s3:ListBucket); " +
+		"the next container start tries offload again")
+	stopChild(b.logger, cmd, childDone, err)
+	b.syncConfig(nil)
+	cmd, childDone = b.start()
+	return cmd, childDone, b.wait(childDone)
+}
+
+// syncConfig writes this boot's config.json (see syncSeedConfig) and
+// returns the logs offload it actually applied.
+func (b bootEnv) syncConfig(offload *logsOffload) *logsOffload {
+	applied, err := syncSeedConfig(b.logger, b.seedPath, b.appDir, offload)
+	if err != nil {
+		// Non-fatal: if the seed is missing (dev builds) or unwritable,
+		// fall through to whatever's already in the volume. Log loudly
+		// so the failure is visible in container logs.
+		b.logger.Printf("WARNING: failed to sync config.json from seed: %v", err)
+	}
+	return applied
+}
+
+// startBifrost starts bifrost-http and returns it with a channel that
+// receives its Wait result. If bifrost crashes/exits on its own, main
+// exits with the same status so the container's restart policy kicks in.
+func startBifrost(ctx context.Context, logger *log.Logger, bin string, args []string) (*exec.Cmd, chan error) {
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = nil
+	// Inherit env so BIFROST_ADMIN_USER / PASS / PROVISIONING_TOKEN,
+	// provider keys and BIFROST_LOGS_S3_* (resolved by Bifrost from the
+	// env.* references in config.json) flow through.
+	cmd.Env = os.Environ()
+	// Put bifrost-http in its own process group so we can deliver
+	// signals to the whole tree (Bifrost spawns helper goroutines
+	// that share the PID, but a separate group lets a future patch
+	// add real subprocesses without breaking signal forwarding).
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	if err := cmd.Start(); err != nil {
+		logger.Fatalf("failed to start bifrost-http: %v", err)
+	}
+	logger.Printf("started bifrost-http pid=%d", cmd.Process.Pid)
+
+	childDone := make(chan error, 1)
+	go func() { childDone <- cmd.Wait() }()
+	return cmd, childDone
+}
+
+// waitForBifrost waits up to readinessTimeout for bifrost-http's
+// /health. The error wraps errChildExited when bifrost-http exited.
+func waitForBifrost(ctx context.Context, logger *log.Logger, childDone <-chan error) error {
+	readinessCtx, cancel := context.WithTimeout(ctx, readinessTimeout)
+	defer cancel()
+	return waitForUpstream(readinessCtx, logger, "bifrost-http",
+		bifrostUpstream+"/health", childDone)
+}
+
+// stopChild stops a bifrost-http whose start failed with waitErr and
+// waits for it to be reaped, so a restart never overlaps it on the
+// SQLite files. When waitErr says it already exited, there is nothing
+// to stop (and childDone has already been drained).
+//
+// Unlike shutdownChild it never reads cmd.ProcessState (written by the
+// Wait goroutine): it signals and then waits on childDone.
+func stopChild(logger *log.Logger, cmd *exec.Cmd, childDone <-chan error, waitErr error) {
+	if errors.Is(waitErr, errChildExited) {
+		return
+	}
+	logger.Printf("sending SIGTERM to bifrost-http (pid=%d)", cmd.Process.Pid)
+	_ = cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-childDone:
+		return
+	case <-time.After(childKillGrace):
+	}
+	logger.Printf("bifrost-http did not exit in %s, sending SIGKILL", childKillGrace)
+	_ = cmd.Process.Kill()
+	select {
+	case <-childDone:
+	case <-time.After(childKillGrace):
+		logger.Printf("bifrost-http pid=%d not reaped after SIGKILL", cmd.Process.Pid)
+	}
 }
 
 // defaultBifrostArgs is the canonical command line we used to bake
@@ -308,6 +483,15 @@ func appDirFromArgs(args []string) string {
 // runtime-mutable state (VKs, customers, budgets) in config.db, which
 // IS in the volume and persists correctly across recreates.
 //
+// Log offload
+// -----------
+// When offload is non-nil (BIFROST_LOGS_S3_* is set, see logsoffload.go)
+// the file written is the seed plus a logs_store block. When it is nil,
+// the file is the seed byte for byte. The returned *logsOffload is the
+// offload actually written: nil when it was off, or when the seed could
+// not take the block (logged as an ERROR, and the plain seed is written
+// instead so Bifrost still boots with today's config).
+//
 // Failure modes
 // -------------
 // Missing seed file → log and return nil; dev builds and the upstream
@@ -316,52 +500,67 @@ func appDirFromArgs(args []string) string {
 //
 // Existing target unreadable / unwritable → log and return the error
 // so the caller can warn. We don't block startup on this.
-func syncSeedConfig(logger *log.Logger, seedPath, appDir string) error {
+func syncSeedConfig(logger *log.Logger, seedPath, appDir string, offload *logsOffload) (*logsOffload, error) {
 	srcInfo, err := os.Stat(seedPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			logger.Printf("no config seed at %s, skipping sync", seedPath)
-			return nil
+			if offload != nil {
+				logger.Printf("ERROR: logs offload not applied (no config seed to add it to); payloads stay in logs.db")
+			}
+			return nil, nil
 		}
-		return fmt.Errorf("stat seed: %w", err)
+		return nil, fmt.Errorf("stat seed: %w", err)
 	}
 	if !srcInfo.Mode().IsRegular() {
-		return fmt.Errorf("seed %s is not a regular file", seedPath)
+		return nil, fmt.Errorf("seed %s is not a regular file", seedPath)
+	}
+	seed, err := os.ReadFile(seedPath)
+	if err != nil {
+		return nil, fmt.Errorf("read seed: %w", err)
+	}
+
+	content, err := renderConfig(seed, offload, appDir)
+	if err != nil {
+		logger.Printf("ERROR: logs offload not applied (%v); payloads stay in logs.db", err)
+		content, offload = seed, nil
 	}
 
 	if err := os.MkdirAll(appDir, 0o755); err != nil {
-		return fmt.Errorf("create app-dir %s: %w", appDir, err)
+		return nil, fmt.Errorf("create app-dir %s: %w", appDir, err)
 	}
 
 	dstPath := filepath.Join(appDir, "config.json")
 
-	// Skip the write when source and destination are byte-identical
-	// to avoid bumping mtime on every boot (which would mask "did the
-	// new image actually deploy" debugging by always showing a recent
-	// mtime).
-	if same, err := filesEqual(seedPath, dstPath); err == nil && same {
-		logger.Printf("config.json already in sync with seed at %s", dstPath)
-		return nil
+	// Skip the write when the target already holds exactly this
+	// content, to avoid bumping mtime on every boot (which would mask
+	// "did the new image actually deploy" debugging by always showing
+	// a recent mtime).
+	if cur, err := os.ReadFile(dstPath); err == nil && bytes.Equal(cur, content) {
+		logger.Printf("config.json already in sync with seed at %s (logs offload: %s)", dstPath, offload)
+		return offload, nil
 	}
 
-	// Write via temp file + rename for atomicity. A torn write here
-	// would leave Bifrost trying to parse half a JSON file on the
-	// next boot.
-	tmpPath := dstPath + ".tmp"
-	src, err := os.Open(seedPath)
-	if err != nil {
-		return fmt.Errorf("open seed: %w", err)
+	if err := writeFileAtomic(dstPath, content); err != nil {
+		return nil, err
 	}
-	defer src.Close()
+	logger.Printf("synced config.json from seed (%d bytes) -> %s (logs offload: %s)", len(content), dstPath, offload)
+	return offload, nil
+}
 
+// writeFileAtomic writes data to path via temp file + fsync + rename. A
+// torn write here would leave Bifrost trying to parse half a JSON file
+// on the next boot.
+func writeFileAtomic(path string, data []byte) error {
+	tmpPath := path + ".tmp"
 	dst, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return fmt.Errorf("create temp %s: %w", tmpPath, err)
 	}
-	if _, err := io.Copy(dst, src); err != nil {
+	if _, err := dst.Write(data); err != nil {
 		_ = dst.Close()
 		_ = os.Remove(tmpPath)
-		return fmt.Errorf("copy seed -> temp: %w", err)
+		return fmt.Errorf("write temp %s: %w", tmpPath, err)
 	}
 	if err := dst.Sync(); err != nil {
 		_ = dst.Close()
@@ -372,50 +571,11 @@ func syncSeedConfig(logger *log.Logger, seedPath, appDir string) error {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("close temp: %w", err)
 	}
-	if err := os.Rename(tmpPath, dstPath); err != nil {
+	if err := os.Rename(tmpPath, path); err != nil {
 		_ = os.Remove(tmpPath)
-		return fmt.Errorf("rename temp -> %s: %w", dstPath, err)
+		return fmt.Errorf("rename temp -> %s: %w", path, err)
 	}
-	logger.Printf("synced config.json from seed (%d bytes) -> %s", srcInfo.Size(), dstPath)
 	return nil
-}
-
-// filesEqual compares two files by content. Returns (false, nil) if
-// either file is missing or differs in size; surfaces other I/O
-// errors. Used to no-op syncSeedConfig when the volume copy already
-// matches the seed.
-func filesEqual(a, b string) (bool, error) {
-	aInfo, err := os.Stat(a)
-	if err != nil {
-		return false, err
-	}
-	bInfo, err := os.Stat(b)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	if aInfo.Size() != bInfo.Size() {
-		return false, nil
-	}
-	aData, err := os.ReadFile(a)
-	if err != nil {
-		return false, err
-	}
-	bData, err := os.ReadFile(b)
-	if err != nil {
-		return false, err
-	}
-	if len(aData) != len(bData) {
-		return false, nil
-	}
-	for i := range aData {
-		if aData[i] != bData[i] {
-			return false, nil
-		}
-	}
-	return true, nil
 }
 
 // newProxy builds the public HTTP handler. Routes `/_plugin/*` to the
@@ -594,9 +754,9 @@ func waitForUpstream(
 			// Caller treats a nil here as "child died" if they care;
 			// we propagate the error to make the failure mode obvious.
 			if childErr == nil {
-				childErr = errors.New("bifrost-http exited during startup")
+				return fmt.Errorf("%s readiness wait aborted: %w during startup", name, errChildExited)
 			}
-			return fmt.Errorf("%s readiness wait aborted: %w", name, childErr)
+			return fmt.Errorf("%s readiness wait aborted: %w: %w", name, errChildExited, childErr)
 		case <-time.After(readinessInterval):
 			if time.Now().After(deadline) {
 				return fmt.Errorf("%s readiness wait: timeout (last error: %v)", name, err)
