@@ -334,7 +334,7 @@ written `config.json` is the seed byte for byte and nothing changes.
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | `BIFROST_LOGS_S3_BUCKET`            | Set (non-empty) turns offload on. One bucket per fleet.                                                   |
 | `BIFROST_LOGS_S3_PREFIX`            | Key prefix, one per box. Default `bifrost`. Leading/trailing `/` are dropped.                             |
-| `BIFROST_LOGS_S3_REGION`            | The bucket's region. Optional, but AWS needs one from here or `AWS_REGION`; R2 takes `auto`.              |
+| `BIFROST_LOGS_S3_REGION`            | The bucket's region. Optional here, but Bifrost needs one, from this or `AWS_REGION`, even with an endpoint ("A region must be set"). MinIO takes any value, R2 takes `auto`. |
 | `BIFROST_LOGS_S3_ENDPOINT`          | For S3-compatible stores (R2, MinIO). Also turns on path-style addressing.                                |
 | `BIFROST_LOGS_S3_ACCESS_KEY_ID`, `BIFROST_LOGS_S3_SECRET_ACCESS_KEY` | Both or neither. Neither: the AWS default credential chain (instance role, `AWS_*` env). One without the other is refused with an `ERROR: logs offload refused` line, and the gateway runs without offload. |
 
@@ -411,11 +411,12 @@ this bucket, under `skills/` at the bucket root, which this policy does
 not allow.)
 
 `scripts/logs-s3-e2e.sh` runs all of this against MinIO, with a MinIO
-user that holds only the policy above:
+user that holds only the policy above, and a fake OpenAI-compatible
+upstream (no provider keys, no spend):
 
 ```bash
 make docker-build
-ENV_FILE=.env scripts/logs-s3-e2e.sh
+scripts/logs-s3-e2e.sh
 ```
 
 ## Local plugin build (without docker)

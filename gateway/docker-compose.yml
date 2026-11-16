@@ -94,7 +94,8 @@ services:
       # missing, denied, unreachable), the wrapper restarts it once
       # without offload rather than take the gateway down.
       #   PREFIX    key prefix, one per box (default "bifrost")
-      #   REGION    the bucket's region (AWS needs one; R2 takes "auto")
+      #   REGION    the bucket's region; Bifrost needs one (this or
+      #             AWS_REGION), even with ENDPOINT. R2 takes "auto"
       #   ENDPOINT  S3-compatible store (R2, MinIO); turns on path-style
       #   ACCESS_KEY_ID / SECRET_ACCESS_KEY  both or neither; neither =
       #             the AWS default credential chain (instance role)
