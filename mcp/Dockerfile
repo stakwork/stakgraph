@@ -1,5 +1,10 @@
 # docker buildx build --platform linux/amd64,linux/arm64 -t repo2graph .
 #
+# Further image-size ideas NOT done here:
+#  - multi-stage build with `yarn install --production` for the runtime stage
+#  - apt `--no-install-recommends`
+#  - drop vim/tree/pandoc/ffmpeg if unused
+#
 # NOTE: mcp depends on strut as a git dependency (see package.json). `yarn`
 # below clones github.com/stakwork/strut at the pinned commit and runs its
 # `prepare` (engine tsc + web UI build) in-image, so the build needs network
@@ -17,10 +22,11 @@ WORKDIR /usr/src/app
 # Install dependencies
 RUN apt update && apt install -y sed git git-lfs vim tree ripgrep wget curl jq python3 pandoc python3-pip python3-venv zip unzip poppler-utils ffmpeg bzip2 tesseract-ocr tesseract-ocr-eng && \
     git lfs install --system && \
-    ln -s /usr/bin/python3 /usr/bin/python
+    ln -s /usr/bin/python3 /usr/bin/python && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install openpyxl for generate_xlsx tool (--break-system-packages required under Debian bookworm PEP 668)
-RUN pip install --break-system-packages openpyxl
+RUN pip install --no-cache-dir --break-system-packages openpyxl
 
 # Install docx-mcp-server for stdio MCP Word document editing (tracked changes, comments, audit).
 # A plain pip install places the `docx-mcp-server` console-script on PATH at
@@ -39,7 +45,7 @@ RUN pip install --break-system-packages openpyxl
 # hard pip-resolver build failure instead of a controlled one.
 # Both packages co-resolved in one invocation so the mcp<2.0.0 constraint is
 # honoured up front (a separate later pip install could leave 2.0.0 in place).
-RUN pip install --break-system-packages "docx-mcp-server==0.7.4" "mcp<2.0.0"
+RUN pip install --no-cache-dir --break-system-packages "docx-mcp-server==0.7.4" "mcp<2.0.0"
 
 # Print resolved versions of key packages for a durable audit record.
 # Uses pip freeze + grep so the step never fails due to an absent package name.
@@ -109,7 +115,8 @@ RUN ffmpeg -version | head -1 && yt-dlp --version && tesseract --version 2>&1 | 
 RUN wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
     chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list && \
-    apt update && apt install -y gh
+    apt update && apt install -y gh && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # install Gitleaks (supports x64 and arm64)
 RUN ARCH=$(dpkg --print-architecture) && \
@@ -134,8 +141,10 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # Install stakgraph CLI (bump version after new CLI release)
 RUN curl -fsSL https://raw.githubusercontent.com/stakwork/stakgraph/refs/heads/main/install.sh | STAKGRAPH_VERSION=v0.4.25 STAKGRAPH_BIN_DIR=/usr/local/bin bash
 
-RUN npx -y playwright install-deps
-RUN npx -y playwright install
+# Chromium only: the repo's playwright config has a single chromium project and
+# nothing uses firefox/webkit, so skip those browsers and their system libs.
+# One layer, with apt/npm caches cleaned in the same RUN.
+RUN npx -y playwright install --with-deps chromium && apt-get clean && rm -rf /var/lib/apt/lists/* /root/.npm/_npx /root/.npm/_cacache
 
 # Copy package.json and package-lock.json (if available)
 COPY ./package.json ./package.json
@@ -151,7 +160,24 @@ COPY ./src/gitsee/agent/package.json ./src/gitsee/agent/package.json
 # runs its `prepare`, which builds the engine and the /lab web UI; the packed
 # result lands in node_modules/strut with build/ and web/dist. strut's own
 # deps are resolved into this tree, so the `resolutions` above apply to it.
-RUN yarn
+# Single layer: install, drop the yarn cache (strut git clone + every optional
+# platform tarball, ~5.8GB, otherwise baked into the layer), and prune binaries.
+# - ONNXRUNTIME_NODE_INSTALL_CUDA=skip: onnxruntime-node's postinstall would
+#   otherwise download CUDA provider libs; this container is CPU-only.
+# - the cache cleanup removes yarn's cache dir wherever it lives.
+# - the prune keeps only onnxruntime-node's linux/<build arch> binaries (other
+#   OS/arch dirs are dead weight) and drops the unused CUDA/TensorRT provider
+#   libs. The linux/$KEEP dir itself is kept; globs may not match, hence `|| true`.
+RUN ONNXRUNTIME_NODE_INSTALL_CUDA=skip yarn install --frozen-lockfile && \
+    yarn cache clean && \
+    rm -rf "$(yarn cache dir)" /usr/local/share/.cache/yarn /root/.cache/yarn /root/.npm /tmp/* && \
+    ARCH=$(dpkg --print-architecture) && \
+    case "$ARCH" in amd64) KEEP=x64;; arm64) KEEP=arm64;; *) KEEP=none;; esac && \
+    { for d in node_modules/onnxruntime-node/bin/napi-v*/*/*; do \
+        case "$d" in */linux/$KEEP) ;; *) rm -rf "$d";; esac; \
+      done || true; } && \
+    { rm -f node_modules/onnxruntime-node/bin/napi-v*/linux/*/libonnxruntime_providers_cuda.so \
+        node_modules/onnxruntime-node/bin/napi-v*/linux/*/libonnxruntime_providers_tensorrt.so || true; }
 
 # Install linux x64 tokenizer bindings (required for fastembed in Docker)
 #
@@ -205,11 +231,11 @@ RUN yarn build
 
 # Build web SPA
 COPY ./web ./web
-RUN cd web && npm install && npm run build
+RUN cd web && npm install && npm run build && rm -rf node_modules && npm cache clean --force
 
 # Build benchmark SPA
 COPY ./benchmark ./benchmark
-RUN cd benchmark && npm install && npm run build
+RUN cd benchmark && npm install && npm run build && rm -rf node_modules && npm cache clean --force
 
 # Install agent skills. Baked OUTSIDE /root and exposed via SKILLS_ROOT:
 # sphinx-swarm mounts a named volume over /root, which is initialized from the
@@ -220,7 +246,8 @@ RUN npx -y skills add https://github.com/anthropics/skills --skill frontend-desi
     npx -y skills add https://github.com/getsentry/skills --skill security-review -y -g && \
     mkdir -p /usr/src/skills && \
     cp -r /root/.agents/skills/. /usr/src/skills/ && \
-    rm -rf /root/.agents/skills
+    rm -rf /root/.agents/skills && \
+    rm -rf /root/.npm/_npx /root/.npm/_cacache
 ENV SKILLS_ROOT=/usr/src/skills
 
 # Vendored skill packs (./skills -> SKILLS_ROOT). COPY merges into the existing
