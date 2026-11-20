@@ -1,4 +1,4 @@
-FROM debian:bookworm
+FROM debian:trixie
 
 # deps
 RUN apt-get update && apt-get install -y \
@@ -18,12 +18,11 @@ RUN apt-get update && apt-get install -y \
     zlib1g-dev \
     libffi-dev \
     libgdbm-dev \
-    libncurses5-dev \
+    libncurses-dev \
     libxml2-dev \
     libxslt1-dev \
     liblzma-dev \
     default-jdk \
-    openjdk-17-jre-headless \
     unzip \
     build-essential \
     automake \
