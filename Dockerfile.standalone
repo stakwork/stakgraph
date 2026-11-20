@@ -15,7 +15,7 @@ FROM rust:1.87.0 AS cacher
 WORKDIR /app
 
 # Install system OpenSSL
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
@@ -32,7 +32,7 @@ FROM rust:1.87.0 AS builder
 WORKDIR /app
 
 # Install system OpenSSL
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
@@ -50,7 +50,7 @@ FROM sphinxlightning/stakgraph-lsp:latest
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
     openssh-client \
     && rm -rf /var/lib/apt/lists/*

@@ -1,7 +1,12 @@
-FROM debian:bookworm
+# Stage: build gopls in a throwaway Go stage (only the binary is copied out)
+FROM golang:1.23.2-bookworm AS gopls-builder
+RUN CGO_ENABLED=0 GOFLAGS=-trimpath GOBIN=/out go install golang.org/x/tools/gopls@v0.16.2 \
+    && go clean -cache -modcache
+
+FROM debian:bookworm-slim
 
 # deps
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     openssl \
     libssl-dev \
@@ -58,27 +63,29 @@ RUN java -version && \
 # rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup.sh \
     && chmod +x rustup.sh \
-    && ./rustup.sh -y \
+    && ./rustup.sh -y --profile minimal -c rust-src \
     && rm rustup.sh
 
 # python
-RUN pip install python-lsp-server --break-system-packages
+RUN pip install --no-cache-dir python-lsp-server --break-system-packages
 
 # js
-RUN npm install -g typescript typescript-language-server
+RUN npm install -g --no-audit --no-fund typescript typescript-language-server \
+    && npm cache clean --force
 
 # go
 WORKDIR /tmp
 RUN curl -O https://dl.google.com/go/go1.23.2.linux-amd64.tar.gz \
     && tar -C /usr/local -xzf go1.23.2.linux-amd64.tar.gz \
-    && rm go1.23.2.linux-amd64.tar.gz
+    && rm go1.23.2.linux-amd64.tar.gz \
+    && rm -rf /usr/local/go/test /usr/local/go/doc
 
 ENV GOROOT=/usr/local/go
 ENV GOPATH=/root/go
 ENV PATH=$PATH:$GOROOT/bin:$GOPATH/bin
 
-RUN mkdir -p $GOPATH/bin \
-    && CGO_ENABLED=0 go install -v golang.org/x/tools/gopls@v0.16.2
+RUN mkdir -p $GOPATH/bin
+COPY --from=gopls-builder /out/gopls $GOPATH/bin/gopls
 
 # Install asdf + Ruby 3.2.2 + Ruby LSPs
 SHELL ["/bin/bash", "-lc"]
@@ -90,7 +97,9 @@ RUN set -eux; \
     asdf plugin-add ruby https://github.com/asdf-vm/asdf-ruby.git || true; \
     asdf install ruby 3.2.2; \
     asdf global ruby 3.2.2; \
-    gem install --no-document bundler ruby-lsp solargraph
+    gem install --no-document bundler ruby-lsp solargraph; \
+    gem cleanup || true; \
+    rm -rf "$ASDF_DIR/downloads" /tmp/ruby-build* /root/.gem
 
 # Add asdf shims to PATH globally
 ENV PATH="/root/.asdf/shims:/root/.asdf/bin:$PATH"
@@ -99,7 +108,8 @@ ENV PATH="/root/.asdf/shims:/root/.asdf/bin:$PATH"
 SHELL ["/bin/sh", "-c"]
 RUN curl -LO "https://github.com/rust-lang/rust-analyzer/releases/download/2025-01-20/rust-analyzer-x86_64-unknown-linux-gnu.gz" \
     && gzip -cd rust-analyzer-x86_64-unknown-linux-gnu.gz > /bin/rust-analyzer \
-    && chmod +x /bin/rust-analyzer
+    && chmod +x /bin/rust-analyzer \
+    && rm rust-analyzer-x86_64-unknown-linux-gnu.gz
 
 # Kotlin Language Server
 RUN set -eux; \
