@@ -4,6 +4,7 @@ import { generateObject } from "ai";
 import { getOrCreateStagehand } from "../tools/stagehand/core.js";
 import { Step, TestResult } from "./types.js";
 import { getModel, getProviderOptions } from "aieo";
+import { resolveAnthropicApiKey } from "../anthropic-federation.js";
 import type { AiUsageWithLegacy } from "aieo";
 import { normalizeUsage } from "aieo";
 import { env } from "../env.js";
@@ -121,7 +122,9 @@ export class SimpleEvaluator {
     // } else {
     //   return openai("gpt-5");
     // }
-    return await getModel("anthropic", env.ANTHROPIC_API_KEY as string);
+    // Federation: the gateway owns the Anthropic credential (placeholder key,
+    // aieo routes via LLM_GATEWAY_URL); no key outside federation is as before.
+    return await getModel("anthropic", resolveAnthropicApiKey(env.ANTHROPIC_API_KEY) as string);
   }
 
   async initStagehand() {

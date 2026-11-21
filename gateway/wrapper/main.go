@@ -127,6 +127,7 @@ func main() {
 		publicAddr     string
 		bifrostBin     string
 		logsArchiveBin string
+		idTokenBin     string
 		bifrostArgs    argsFlag
 	)
 	flag.StringVar(&publicAddr, "listen", defaultPublicAddr,
@@ -135,6 +136,8 @@ func main() {
 		"path to the bifrost-http binary")
 	flag.StringVar(&logsArchiveBin, "logs-archive-bin", defaultLogsArchiveBin,
 		"path to the logs-archive helper (log offload preflight and legacy logs.db upload)")
+	flag.StringVar(&idTokenBin, "id-token-bin", defaultIDTokenBin,
+		"path to the id-token helper (Anthropic workload identity federation)")
 	flag.Var(&bifrostArgs, "bifrost-arg",
 		"argument to pass to bifrost-http (repeatable; default arg set used if none given)")
 	flag.Parse()
@@ -201,6 +204,32 @@ func main() {
 		}
 	}
 
+	// Anthropic auth mode (wif.go), decided once, here. In
+	// workload-identity mode a token must be on disk before bifrost-http
+	// starts, and stay fresh after. A failed first mint is not fatal:
+	// the other providers keep working and the supervisor keeps trying.
+	wif := anthropicAuthFromEnv(os.Getenv, logger)
+	stopIDToken := func() {}
+	if wif != nil {
+		if err := runIDTokenOnce(rootCtx, idTokenBin); err != nil {
+			logger.Printf("ERROR: no Anthropic identity token could be minted (%v; see the [id-token] lines above); "+
+				"bifrost-http starts anyway, anthropic requests fail until the helper succeeds (it keeps retrying)", err)
+		}
+		idCtx, cancelID := context.WithCancel(rootCtx)
+		idDone := make(chan struct{})
+		go func() {
+			defer close(idDone)
+			(&idTokenSupervisor{logger: logger, bin: idTokenBin, retryMin: 5 * time.Second, retryMax: time.Minute}).run(idCtx)
+		}()
+		stopIDToken = func() {
+			cancelID()
+			select {
+			case <-idDone:
+			case <-time.After(10 * time.Second):
+			}
+		}
+	}
+
 	// Write config.json, start bifrost-http, and wait for it to bind
 	// its listener. If it dies during startup, surface that immediately
 	// instead of timing out.
@@ -208,6 +237,7 @@ func main() {
 		logger:   logger,
 		seedPath: configSeedPath,
 		appDir:   appDir,
+		wif:      wif,
 		start: func() (*exec.Cmd, chan error) {
 			return startBifrost(rootCtx, logger, bifrostBin, bifrostArgs)
 		},
@@ -218,6 +248,7 @@ func main() {
 	cmd, childDone, err := b.boot(offload)
 	if err != nil {
 		shutdownChild(logger, cmd)
+		stopIDToken()
 		logger.Fatalf("bifrost-http never became ready: %v", err)
 	}
 
@@ -284,12 +315,14 @@ func main() {
 		logger.Printf("bifrost-http exited unexpectedly: %v", err)
 		shutdownPublicServer(server, logger)
 		stopArchiving()
+		stopIDToken()
 		os.Exit(exitCodeFromErr(err))
 	case err := <-serverDone:
 		if !errors.Is(err, http.ErrServerClosed) {
 			logger.Printf("public server failed: %v", err)
 		}
 		stopArchiving()
+		stopIDToken()
 		shutdownChild(logger, cmd)
 		os.Exit(1)
 	}
@@ -299,6 +332,7 @@ func main() {
 	// bifrost-http.
 	shutdownPublicServer(server, logger)
 	stopArchiving()
+	stopIDToken()
 	shutdownChild(logger, cmd)
 	// Drain childDone so we don't leak the goroutine on exit.
 	select {
@@ -315,6 +349,7 @@ type bootEnv struct {
 	logger   *log.Logger
 	seedPath string
 	appDir   string
+	wif      *wifConfig // workload identity for the anthropic key; nil = config.json as is
 	start    func() (*exec.Cmd, chan error)
 	wait     func(childDone <-chan error) error
 }
@@ -351,7 +386,7 @@ func (b bootEnv) boot(offload *logsOffload) (*exec.Cmd, chan error, error) {
 // syncConfig writes this boot's config.json (see syncSeedConfig) and
 // returns the logs offload it actually applied.
 func (b bootEnv) syncConfig(offload *logsOffload) *logsOffload {
-	applied, err := syncSeedConfig(b.logger, b.seedPath, b.appDir, offload)
+	applied, err := syncSeedConfigWIF(b.logger, b.seedPath, b.appDir, offload, b.wif)
 	if err != nil {
 		// Non-fatal: if the seed is missing (dev builds) or unwritable,
 		// fall through to whatever's already in the volume. Log loudly
@@ -501,6 +536,14 @@ func appDirFromArgs(args []string) string {
 // Existing target unreadable / unwritable → log and return the error
 // so the caller can warn. We don't block startup on this.
 func syncSeedConfig(logger *log.Logger, seedPath, appDir string, offload *logsOffload) (*logsOffload, error) {
+	return syncSeedConfigWIF(logger, seedPath, appDir, offload, nil)
+}
+
+// syncSeedConfigWIF is syncSeedConfig with the Anthropic key switched to
+// workload identity when wif is non-nil (wif.go). With wif nil it is
+// syncSeedConfig exactly. When the seed cannot take the rewrite it is
+// logged as an ERROR and the file is written without it.
+func syncSeedConfigWIF(logger *log.Logger, seedPath, appDir string, offload *logsOffload, wif *wifConfig) (*logsOffload, error) {
 	srcInfo, err := os.Stat(seedPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -524,6 +567,14 @@ func syncSeedConfig(logger *log.Logger, seedPath, appDir string, offload *logsOf
 	if err != nil {
 		logger.Printf("ERROR: logs offload not applied (%v); payloads stay in logs.db", err)
 		content, offload = seed, nil
+	}
+	if wif != nil {
+		if withWIF, err := applyWIF(content, wif); err != nil {
+			logger.Printf("ERROR: anthropic workload identity not applied to config.json (%v); the anthropic key stays as the seed has it", err)
+		} else {
+			content = withWIF
+			logger.Printf("config.json: providers.anthropic.keys[0] uses workload identity (token file %s)", wif.TokenFile)
+		}
 	}
 
 	if err := os.MkdirAll(appDir, 0o755); err != nil {

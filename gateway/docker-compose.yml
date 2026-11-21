@@ -108,6 +108,33 @@ services:
       BIFROST_LOGS_S3_SECRET_ACCESS_KEY: ${BIFROST_LOGS_S3_SECRET_ACCESS_KEY:-}
       # Provider keys are referenced by env.* in data/config.json.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Anthropic workload identity federation from this EC2 instance's
+      # instance profile (README "Anthropic workload identity federation").
+      # Used ONLY when ANTHROPIC_API_KEY is empty AND the RULE_ID,
+      # ORGANIZATION_ID and SERVICE_ACCOUNT_ID below are all set; with the
+      # key set they are ignored (the API key wins) and the boot log says
+      # so. WORKSPACE_ID is optional (needed when the rule spans several
+      # workspaces). AWS_REGION is the region of the regional STS endpoint
+      # (required in this mode). The instance role needs
+      # sts:GetWebIdentityToken and the instance's IMDS
+      # HttpPutResponseHopLimit must be 2 so this container can reach it.
+      ANTHROPIC_FEDERATION_RULE_ID: ${ANTHROPIC_FEDERATION_RULE_ID:-}
+      ANTHROPIC_ORGANIZATION_ID: ${ANTHROPIC_ORGANIZATION_ID:-}
+      ANTHROPIC_SERVICE_ACCOUNT_ID: ${ANTHROPIC_SERVICE_ACCOUNT_ID:-}
+      ANTHROPIC_WORKSPACE_ID: ${ANTHROPIC_WORKSPACE_ID:-}
+      AWS_REGION: ${AWS_REGION:-}
+      # Optional knobs for the identity token helper (defaults in
+      # parentheses; empty = default). Only read in workload identity mode.
+      #   FILE     (/var/run/secrets/anthropic.com/token) where Bifrost reads it
+      #   AUDIENCE (https://api.anthropic.com)
+      #   DURATION_SECONDS (600) token lifetime, 60-3600
+      #   REFRESH_SECONDS  (240) rewrite interval, must be < DURATION
+      #   SIGNING_ALGORITHM (RS256) or ES384
+      ANTHROPIC_IDENTITY_TOKEN_FILE: ${ANTHROPIC_IDENTITY_TOKEN_FILE:-}
+      ANTHROPIC_IDENTITY_TOKEN_AUDIENCE: ${ANTHROPIC_IDENTITY_TOKEN_AUDIENCE:-}
+      ANTHROPIC_IDENTITY_TOKEN_DURATION_SECONDS: ${ANTHROPIC_IDENTITY_TOKEN_DURATION_SECONDS:-}
+      ANTHROPIC_IDENTITY_TOKEN_REFRESH_SECONDS: ${ANTHROPIC_IDENTITY_TOKEN_REFRESH_SECONDS:-}
+      ANTHROPIC_IDENTITY_TOKEN_SIGNING_ALGORITHM: ${ANTHROPIC_IDENTITY_TOKEN_SIGNING_ALGORITHM:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}

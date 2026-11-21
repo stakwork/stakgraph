@@ -5,11 +5,14 @@
 
 export const BIFROST_URL = process.env.BIFROST_URL ?? "http://localhost:8181";
 export const MCP_URL = process.env.MCP_URL ?? "http://localhost:3355";
+// Bifrost >= 2.2.6 refuses /api/* without this header while no dashboard
+// admin exists. Must equal BIFROST_SETUP_TOKEN in docker-compose.yml.
+const SETUP_TOKEN = process.env.BIFROST_SETUP_TOKEN ?? "dev-setup-token";
 
 async function bf(method: string, path: string, body?: unknown): Promise<any> {
   const res = await fetch(`${BIFROST_URL}${path}`, {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Bifrost-Setup-Token": SETUP_TOKEN },
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();

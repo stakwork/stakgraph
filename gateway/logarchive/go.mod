@@ -2,7 +2,7 @@
 // check of the bucket, background archive of a legacy logs.db). Its own
 // module, kept apart from the wrapper (stdlib only) and from the plugin
 // (whose deps must match bifrost-http's byte for byte). The AWS SDK is
-// pinned to the versions bifrost transports/v2.2.2 builds with
+// pinned to the versions bifrost transports/v2.5.0 builds with
 // (framework/go.mod), so credentials, endpoints and signing resolve the
 // way Bifrost's own object store does.
 module github.com/stakwork/stakgraph/gateway/logarchive

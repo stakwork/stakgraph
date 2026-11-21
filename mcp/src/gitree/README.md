@@ -37,6 +37,22 @@ export GITHUB_TOKEN="your_github_token"
 export ANTHROPIC_API_KEY="your_anthropic_key"
 ```
 
+Instead of `ANTHROPIC_API_KEY`, a deployment whose LLM gateway (Bifrost, `gateway/`)
+authenticates to Anthropic itself (workload identity federation) leaves the key
+unset and sets, on the MCP server too:
+
+- `LLM_GATEWAY_URL` — required in that mode; all Anthropic calls go through it
+- `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`,
+  `ANTHROPIC_SERVICE_ACCOUNT_ID` — all three set (with the key empty) selects it;
+  `ANTHROPIC_WORKSPACE_ID` is optional
+- `AWS_REGION` — used by the gateway, not by MCP
+
+With them, MCP sends the placeholder key `gateway-managed` (the gateway ignores a
+client-supplied Anthropic key and uses its own credential). A caller that must pass
+the gateway's auth still sends its virtual key as the API key, as before. Without
+`LLM_GATEWAY_URL`, MCP fails with an error saying so. See `src/anthropic-federation.ts`
+and `gateway/README.md`.
+
 ## Usage
 
 ### Process a Repository

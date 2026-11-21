@@ -85,7 +85,25 @@ export default defineStep({
     switch (provider) {
       case "anthropic": {
         const { createAnthropic } = await import("@ai-sdk/anthropic");
-        model = createAnthropic({ apiKey: await keyFor("ANTHROPIC_API_KEY") })(modelName ?? "claude-sonnet-4-20250514");
+        // Federation (no ANTHROPIC_API_KEY; the gateway holds the credential):
+        // placeholder key through LLM_GATEWAY_URL. With a key, unchanged. This
+        // step is published as text and may import only `strut`, hence inline;
+        // see src/anthropic-federation.ts for why the placeholder is safe.
+        const antKey = await secrets?.get("ANTHROPIC_API_KEY");
+        let antOpts: { apiKey: string; baseURL?: string };
+        if (antKey) {
+          antOpts = { apiKey: antKey };
+        } else {
+          // Literal secret names: strut scans step source for `secrets.get("NAME")`.
+          const fedRule = await secrets?.get("ANTHROPIC_FEDERATION_RULE_ID");
+          const fedOrg = await secrets?.get("ANTHROPIC_ORGANIZATION_ID");
+          const fedSvc = await secrets?.get("ANTHROPIC_SERVICE_ACCOUNT_ID");
+          if (!fedRule || !fedOrg || !fedSvc) await keyFor("ANTHROPIC_API_KEY"); // throws the usual error
+          const gw = ((await secrets?.get("LLM_GATEWAY_URL")) ?? "").trim().replace(/\/+$/, "");
+          if (!gw) throw new Error("eval/score: ANTHROPIC_API_KEY is not set and Anthropic workload identity federation is configured, but LLM_GATEWAY_URL is not set — federation only works through the LLM gateway");
+          antOpts = { apiKey: "gateway-managed", baseURL: `${gw}/anthropic/v1` };
+        }
+        model = createAnthropic(antOpts)(modelName ?? "claude-sonnet-4-20250514");
         break;
       }
       case "openai": {

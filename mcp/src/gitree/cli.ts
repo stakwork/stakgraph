@@ -8,7 +8,7 @@ import { StreamingConceptBuilder } from "./builder.js";
 import { Summarizer } from "./summarizer.js";
 import { FileLinker } from "./fileLinker.js";
 import { ClueAnalyzer } from "./clueAnalyzer.js";
-import { getApiKeyForProvider } from "aieo";
+import { getApiKeyForProvider } from "../anthropic-federation.js";
 import { addUsage, normalizeUsage } from "aieo";
 import { Usage } from "./types.js";
 

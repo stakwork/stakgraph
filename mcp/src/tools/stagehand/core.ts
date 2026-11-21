@@ -1,6 +1,7 @@
 import { Stagehand, Page } from "@browserbasehq/stagehand";
 import { getProvider } from "./providers.js";
 import { env } from "../../env.js";
+import { anthropicClientOptions } from "../../anthropic-federation.js";
 
 let STATE: {
   [sessionId: string]: {
@@ -59,6 +60,14 @@ export async function getOrCreateStagehand(sessionIdMaybe?: string) {
 
   let provider = getProvider();
   console.log("initializing stagehand!", provider.model);
+  // Anthropic federation: placeholder key + the gateway's Anthropic base URL;
+  // with a key (or another provider) exactly the env key, as before.
+  const fed =
+    provider.name === "anthropic"
+      ? anthropicClientOptions(env[provider.api_key_env_var_name])
+      : { apiKey: env[provider.api_key_env_var_name] };
+  const stagehandApiKey = fed.apiKey;
+  const stagehandBaseURL = "baseURL" in fed ? fed.baseURL : undefined;
   const sh = new Stagehand({
     env: "LOCAL",
     domSettleTimeout: 60000,
@@ -68,7 +77,8 @@ export async function getOrCreateStagehand(sessionIdMaybe?: string) {
     },
     model: {
       modelName: provider.model,
-      apiKey: env[provider.api_key_env_var_name],
+      apiKey: stagehandApiKey,
+      ...(stagehandBaseURL && { baseURL: stagehandBaseURL }),
     },
   });
   await sh.init();

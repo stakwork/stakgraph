@@ -57,22 +57,25 @@ func newLoginHandlers(store *sessions.Store, limiter *loginLimiter, user, pass s
 //
 // Request shape
 // -------------
-//   Header: Authorization: Basic base64(user:pass)
-//   Body:   (ignored)
+//
+//	Header: Authorization: Basic base64(user:pass)
+//	Body:   (ignored)
 //
 // Success
 // -------
-//   200 OK
-//   Set-Cookie: bifrost_session=...; HttpOnly; Secure; SameSite=Strict;
-//               Path=/_plugin; Max-Age=28800
-//   {"user":"admin"}
+//
+//	200 OK
+//	Set-Cookie: bifrost_session=...; HttpOnly; Secure; SameSite=Strict;
+//	            Path=/_plugin; Max-Age=28800
+//	{"user":"admin"}
 //
 // Failures
 // --------
-//   400 missing/malformed Authorization header
-//   401 wrong credentials (rate-limit counter bumped)
-//   429 too many failed attempts in window
-//   503 session store unavailable (Redis down)
+//
+//	400 missing/malformed Authorization header
+//	401 wrong credentials (rate-limit counter bumped)
+//	429 too many failed attempts in window
+//	503 session store unavailable (Redis down)
 //
 // Why Basic header (and not a JSON body)? Browsers don't natively
 // send Basic on a fetch unless you opt in, so the SPA assembles the
