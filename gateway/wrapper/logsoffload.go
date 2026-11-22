@@ -5,7 +5,7 @@ package main
 // Bifrost keeps every request's full payload (input history, output,
 // params, tools, raw request/response, ...) in one SQLite file,
 // <app-dir>/logs.db, and nothing ever shrinks it. Bifrost
-// transports/v2.5.0 can instead run a "hybrid" log store: each log's
+// transports/v2.5.1 can instead run a "hybrid" log store: each log's
 // payload is gzipped to <prefix>/logs/YYYY/MM/DD/HH/<id>.json.gz in a
 // bucket, SQLite keeps a small index row (tokens, cost, metadata, a
 // 2 KB summary, the last user message), and GET /api/logs/{id} fetches

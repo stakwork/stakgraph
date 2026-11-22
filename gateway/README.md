@@ -82,7 +82,7 @@ as the dashboard, with one TLS terminator at the swarm/ingress edge.
 
 The upstream `maximhq/bifrost:latest` is statically linked and **cannot
 load `.so` plugins** ([docs](https://docs.getbifrost.ai/plugins/building-dynamic-binary)).
-The `Dockerfile` here clones `bifrost` at a pinned tag (`transports/v2.5.0`, the Dockerfile's `BIFROST_VERSION`),
+The `Dockerfile` here clones `bifrost` at a pinned tag (`transports/v2.5.1`, the Dockerfile's `BIFROST_VERSION`),
 builds `bifrost-http` with CGO + dynamic linking, builds our plugin
 against the same source tree (avoiding the "plugin was built with a
 different version of package" trap), builds the (stdlib-only) wrapper
@@ -279,7 +279,7 @@ make docker-build
 cd auth/ts && npm install && node --import tsx ../../scripts/custom-provider-e2e.ts
 ```
 
-What it shows, on bifrost `transports/v2.5.0`:
+What it shows, on bifrost `transports/v2.5.1`:
 
 - **A custom provider takes two calls.** First `POST /api/providers` with
   `network_config` (`base_url`, plus `allow_private_network` for an address
@@ -485,7 +485,7 @@ The gateway can authenticate to Anthropic without a static
 Anthropic workload identity federation). It only takes effect when
 `ANTHROPIC_API_KEY` is empty; with the key set, nothing changes.
 
-How it works. Bifrost (`transports/v2.5.0`) does not call AWS. A key with
+How it works. Bifrost (`transports/v2.5.1`) does not call AWS. A key with
 `anthropic_key_config.workload_identity` makes it read an identity JWT from
 a file and exchange it at `https://api.anthropic.com/v1/oauth/token` for a
 short-lived access token, which it caches and refreshes. The JWT comes from
@@ -572,6 +572,90 @@ by booting a `transports/v2.5.0` `bifrost-http` against one `config.db`:
 the key row kept its ID and flipped each way). The key deliberately
 keeps its name: a new name would delete the old key row, and with it
 the links from virtual-key provider configs to that key.
+
+## Upgrading Bifrost
+
+**Back up the data volume first.** `stakgraph-gateway-data` (mounted at
+`/app/data`) holds `config.db` (provider keys, virtual keys, budgets) and
+`logs.db`. Bifrost migrates both on the first boot of a new version, and a
+migration cannot be undone by starting the old image again. From the
+changelogs between `v2.2.2` and `v2.5.1`: most migrations only add columns or
+tables, which an older binary ignores, but several are marked non-reversible
+(for example `move_config_json_vk_limits_to_model_configs`,
+`make_mcp_oauth_flows_state_unique`, which deletes rows,
+`add_batch_jobs_due_index`, which clears values, and v2.5.0's
+`add_anthropic_workload_identity_column`), and v2.3.0 also rebuilds the
+`logs` indexes. A rollback is therefore image plus the backup, not the image
+alone.
+
+```bash
+docker compose stop bifrost          # a consistent copy: no writer on the SQLite files
+docker run --rm -v stakgraph-gateway-data:/data -v "$PWD":/backup alpine \
+  tar czf /backup/gateway-data-$(date +%F).tgz -C /data .
+```
+
+Restore (into an empty or replaced volume, with the gateway stopped):
+
+```bash
+docker compose down
+docker volume rm stakgraph-gateway-data
+docker volume create stakgraph-gateway-data
+docker run --rm -v stakgraph-gateway-data:/data -v "$PWD":/backup alpine \
+  tar xzf /backup/gateway-data-YYYY-MM-DD.tgz -C /data
+```
+
+The first boot on an existing `logs.db` can be slow: v2.3.0 replaces the
+single-column `logs` indexes with `(column, timestamp)` composites, built at
+startup on SQLite (only Postgres builds them in a background job,
+`framework/logstore/migrations.go`, `runTimestampIndexMigration`). The image's health check therefore has a 120 s start
+period (`Dockerfile`, `docker-compose.yml`). The wrapper waits 60 s
+(`readinessTimeout`, `wrapper/main.go`) for bifrost-http to answer `/health`
+and exits if it does not, after which `restart: unless-stopped` starts it
+again; a very large `logs.db` that needs longer than that would restart the
+migration in a loop. If you see `bifrost-http never became ready` on the first
+boot after an upgrade, start it once with a longer wait or on a copy to see how
+long the migration takes.
+
+### Compat defaults (`client.compat` in `data/config.json`)
+
+Since v2.2.6/v2.3.0 Bifrost's compat plugin does two things the v2.2.x
+gateway did not. Both default to on, also for a `config.json` with no `compat`
+block (`framework/configstore/clientconfig.go`, `CompatConfig.UnmarshalJSON`:
+an omitted flag is `true`, except `convert_decision_to_responses`):
+
+- `should_convert_params`: lowers a `max_tokens` / `max_completion_tokens` /
+  `max_output_tokens` above the model's catalog limit to that limit
+  (changelog v2.2.6; the flag did nothing in v2.2.2).
+- `force_reasoning_only_models_to_responses`: sends chat completion requests
+  with tools to the Responses API for models the catalog marks as unable to
+  reason with tool calls, and converts the answer back (changelog v2.3.0).
+
+The seed pins both to `false`, which is the v2.2.x behaviour:
+
+```json
+"client": {
+  "compat": {
+    "should_convert_params": false,
+    "force_reasoning_only_models_to_responses": false
+  }
+}
+```
+
+The other compat flags (`convert_text_to_chat`, `convert_chat_to_responses`,
+`should_drop_params`, `azure_deepseek`) are not listed: they exist in v2.2.2
+with the same default (`true`), and an omitted flag stays `true` even when the
+block is present. To change one, list it explicitly.
+
+How it meets `config.db`: the client section is reconciled by hash
+(`loadClientConfig` in `transports/bifrost-http/lib/config.go`, "Case 2b").
+The hash covers `compat`, so a changed value in `config.json` wins over the
+stored one on the next boot, and the whole `client` section is replaced from
+the file. While the seed is unchanged, the stored row wins, so a dashboard
+edit (Settings, Compatibility) survives restarts until the next image changes
+the seed. Checked with a `transports/v2.5.1` `bifrost-http`: a database booted
+without `compat` reported both flags `true`; the same database booted with the
+block reported both `false` (log: "client config was updated in config.json,
+syncing"); removing the block from the file put both back to `true`.
 
 ## Local plugin build (without docker)
 

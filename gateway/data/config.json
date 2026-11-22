@@ -3,7 +3,11 @@
   "client": {
     "log_retention_days": 365,
     "drop_excess_requests": false,
-    "enforce_auth_on_inference": true
+    "enforce_auth_on_inference": true,
+    "compat": {
+      "should_convert_params": false,
+      "force_reasoning_only_models_to_responses": false
+    }
   },
   "auth_config": {
     "admin_username": "env.BIFROST_ADMIN_USER",

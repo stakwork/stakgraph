@@ -37,6 +37,14 @@ services:
       dockerfile: Dockerfile
     container_name: stakgraph-gateway
     restart: unless-stopped
+    # Only the start period is overridden; the test and interval are the
+    # image's HEALTHCHECK. 120s because bifrost v2.3.0's migrations replace
+    # the single-column `logs` indexes with (column, timestamp) composites
+    # ("logs_add_owner_timestamp_indexes", reversible on SQLite), so the first
+    # boot on an existing, large logs.db can take a while. Failed checks in
+    # the window don't count toward "unhealthy".
+    healthcheck:
+      start_period: 120s
     environment:
       # Bifrost's listener inside the container is loopback-only; the
       # wrapper owns the public :8181. APP_HOST/APP_PORT are passed

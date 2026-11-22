@@ -7,7 +7,7 @@
  * holds one: every Anthropic call must go through LLM_GATEWAY_URL.
  *
  * What the gateway does with an Anthropic key the client sends (verified in
- * Bifrost transports/v2.5.0):
+ * Bifrost transports/v2.5.1):
  *  - It is NOT used as the provider credential. A non-virtual-key
  *    `x-api-key` / `Authorization: Bearer` value only becomes one when the
  *    server has `allow_direct_keys` AND the request carries

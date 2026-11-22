@@ -7,7 +7,7 @@ OUTPUT      = $(OUTPUT_DIR)/$(PLUGIN_NAME).so
 
 # Bifrost upstream version this plugin is built against. Must match the
 # bifrost-http binary it gets loaded into — Go plugins are strict.
-BIFROST_VERSION ?= transports/v2.5.0
+BIFROST_VERSION ?= transports/v2.5.1
 GO_VERSION      ?= 1.27.3
 
 # Docker image we build (dynamic bifrost-http + this plugin).

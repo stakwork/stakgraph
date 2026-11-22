@@ -21,11 +21,11 @@
 # Bifrost releases per-component tags (e.g. transports/v1.5.2, core/v1.5.8).
 # We pin the transports tag because that's what produces bifrost-http; the
 # core version comes along via go.work / replace directives in the tree.
-# >= the `go` line of bifrost's transports/go.mod (1.27.3 at transports/v2.5.0):
+# >= the `go` line of bifrost's transports/go.mod (1.27.3 at transports/v2.5.1):
 # the toolchain must also be identical for bifrost-http and the plugin .so.
 ARG GO_VERSION=1.27.3
 ARG NODE_VERSION=25
-ARG BIFROST_VERSION=transports/v2.5.0
+ARG BIFROST_VERSION=transports/v2.5.1
 
 # ---------------------------------------------------------------------------
 # Stage 0: clone bifrost source once and share via subsequent stages.
@@ -185,7 +185,7 @@ RUN CGO_ENABLED=0 GOOS=linux \
 # offload. The wrapper runs it; see gateway/logarchive/main.go. Its own
 # module so the wrapper stays stdlib-only and the plugin's dependency set
 # (which must match bifrost-http's) is untouched. Its go.mod pins the AWS
-# SDK to the versions bifrost transports/v2.5.0 builds with. Static, no
+# SDK to the versions bifrost transports/v2.5.1 builds with. Static, no
 # CGO.
 # ---------------------------------------------------------------------------
 FROM golang:${GO_VERSION}-alpine3.23 AS logarchive-builder
@@ -302,7 +302,13 @@ VOLUME ["/app/data"]
 # `wget -O- > /dev/null` does a GET (not HEAD). `wget --spider` issues
 # HEAD which bifrost-http rejects with 405 → unhealthy container →
 # traefik filters it out → no routing.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+#
+# start-period 120s: bifrost v2.3.0's migrations replace the single-column
+# `logs` indexes (virtual_key_id, user_id, ...) with (column, timestamp)
+# composites, built at startup on SQLite, so the first boot of an existing,
+# large logs.db can take a while. Failures inside the window don't count.
+# (The wrapper itself waits readinessTimeout, 60s, for bifrost-http.)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
     CMD wget -q -O- http://127.0.0.1:8181/health > /dev/null || exit 1
 
 ENTRYPOINT ["/sbin/tini", "--"]

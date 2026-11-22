@@ -10,7 +10,7 @@ require (
 	// point at the local bifrost checkout — this guarantees the plugin and
 	// bifrost-http compile against byte-identical core sources, which Go's
 	// plugin loader requires.
-	github.com/maximhq/bifrost/core v1.15.1
+	github.com/maximhq/bifrost/core v1.15.2
 	// go-redis MUST match the version bifrost-http itself depends
 	// on transitively (see transports/go.mod in the bifrost release
 	// matching BIFROST_VERSION). Go's plugin loader rejects with

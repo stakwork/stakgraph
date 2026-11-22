@@ -2,7 +2,7 @@ services:
   bifrost:
     # Pinned (not :latest) so the config.json schema and /api behaviour the
     # scripts here rely on cannot change under you. Bump deliberately.
-    image: maximhq/bifrost:v2.5.0
+    image: maximhq/bifrost:v2.5.1
     container_name: bifrost
     restart: unless-stopped
     environment:

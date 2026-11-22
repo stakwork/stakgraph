@@ -410,7 +410,7 @@ check "d. spend/by-agent total_tokens == SUM(total_tokens) in logs.db" "$(is "$(
 check "d. cost is non-zero (the check above is not 0 == 0)" "$(is "$(echo "$DB_SUM" | tr -d '0.')" != "")"
 RUN=$(plugin "$BASE/_plugin/runs/r-post")
 RUN_SUM=$(sql "$VOL" "SELECT printf('%.8f', coalesce(sum(cost),0)) FROM logs WHERE json_extract(metadata,'\$.\"run-id\"')='r-post';")
-# The run's call list, not its .stats: bifrost's /api/logs (re-checked at transports/v2.5.0) fills
+# The run's call list, not its .stats: bifrost's /api/logs (re-checked at transports/v2.5.1) fills
 # only stats.total_requests (framework/logstore/rdb.go SearchLogs), so
 # .stats.total_cost / total_tokens are 0 on every run, offload or not.
 echo "    /_plugin/runs/r-post: $(echo "$RUN" | jq -c '{calls: (.logs|length), sum_cost: ([.logs[].cost]|add), stats}')   logs.db: sum(cost)=$RUN_SUM"

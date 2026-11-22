@@ -6,7 +6,7 @@ Runs Bifrost locally on `http://localhost:8181` so MCP can be tested with
 
 ## Layout
 
-- `docker-compose.yml` — Bifrost service (image pinned to `maximhq/bifrost:v2.5.0`),
+- `docker-compose.yml` — Bifrost service (image pinned to `maximhq/bifrost:v2.5.1`),
   host port `8181 -> container 8080`.
 - `data/config.json` — seed config: Anthropic + OpenAI + OpenRouter + Gemini
   + xAI providers, API keys read from `env.*`, `config_store` enabled (SQLite)
@@ -71,7 +71,7 @@ npx tsx docs/gateway/list-vks.ts --delete
   rm -f data/config.db* data/logs.db*
   docker compose up -d
   ```
-- The image is pinned to `v2.5.0`. From Bifrost 2.2.6 on, `/api/*` (the VK
+- The image is pinned to `v2.5.1`. From Bifrost 2.2.6 on, `/api/*` (the VK
   scripts here) needs a setup token while no dashboard admin exists:
   `BIFROST_SETUP_TOKEN` in `docker-compose.yml` (default `dev-setup-token`) and
   `lib.ts` sends it as `X-Bifrost-Setup-Token`. Inference without a VK is
