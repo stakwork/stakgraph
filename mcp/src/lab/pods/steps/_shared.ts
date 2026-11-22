@@ -308,7 +308,7 @@ export interface AgentAsk {
  *  provider sends no custom headers, so an `x-macaroon` header handed to
  *  staklink never reached the gateway (2026-10-07, the first live pod job:
  *  `401 x-macaroon header is required`). The gateway's wrapper splits the key
- *  back into the two headers (stakgraph gateway/wrapper/authsplit.go). The
+ *  back into the two headers (stakwork/mothership wrapper/authsplit.go). The
  *  grant's other headers — the `x-bf-dim-*` dims — still go as headers, for
  *  the providers goose carries them on. */
 export async function agentBody(ctx: PodCtx, ask: AgentAsk): Promise<{ body: Record<string, unknown>; session: string | null }> {
