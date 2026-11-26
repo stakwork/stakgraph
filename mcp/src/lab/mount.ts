@@ -304,6 +304,10 @@ function isTokenRead(req: Request): boolean {
     const url = new URL(`http://localhost${req.url}`);
     const packages = /^\/packages\/(?:catalog|[^/]+\/[^/]+\/archive)$/.test(url.pathname);
     if (packages && url.searchParams.has("public")) return true;
+    // A catalog token may ride in `x-strut-catalog-token` instead of `?t=` so
+    // it stays out of access logs — the catalog and archive routes only, never
+    // the file-token routes. (Not `Authorization`: that is the embed JWT's.)
+    if (packages && (req.header("x-strut-catalog-token") ?? "") !== "") return true;
     if (!url.searchParams.has("t")) return false;
     return /^\/artifacts\/[^/]+(\/|$)/.test(url.pathname) || /^\/jobs\/[^/]+\/files(\/|$)/.test(url.pathname) || packages;
   } catch {

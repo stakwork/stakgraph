@@ -285,6 +285,23 @@ describe("labAuth", () => {
     }
   });
 
+  it("hands a catalog read carrying the x-strut-catalog-token header through, on the package routes only", async () => {
+    const h = { "x-strut-catalog-token": "abc" };
+    for (const path of ["/lab/packages/catalog", "/lab/packages/acme/linear/archive?digest=sha256:0"]) {
+      const res = await get(port, path, h);
+      assert.equal(res.status, 200, path);
+    }
+    for (const [path, method, headers] of [
+      ["/lab/workflows", "GET", h],
+      ["/lab/artifacts/123", "GET", h],
+      ["/lab/packages/catalog", "POST", h],
+      ["/lab/packages/catalog", "GET", { "x-strut-catalog-token": "" }],
+    ] as const) {
+      const res = await get(port, path, { ...headers }, method);
+      assert.equal(res.status, 401, `${method} ${path}`);
+    }
+  });
+
   it("hands strut's public view to anyone: its reads, a preflight, a public app's door", async () => {
     for (const [path, method] of [
       ["/lab/public", "GET"],
