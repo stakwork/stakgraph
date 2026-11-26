@@ -33,6 +33,7 @@ import type { Request as ExpressRequest, Response as ExpressResponse } from "exp
 import { generateRunId, type RunEvent, type RunResult, type RunStore } from "strut";
 import * as asyncReqs from "../graph/reqs.js";
 import { env } from "../env.js";
+import { getGithubToken } from "../gitree/utils.js";
 
 export const PROCESS_WORKFLOW = "bootstrap-then-process";
 export const DESCRIBE_WORKFLOW = "describe-code";
@@ -313,7 +314,7 @@ export function createProxies(deps: ProxyDeps): { process: Handler; describe: Ha
     }
     try {
       const strut = await deps.strut();
-      const { entry, attached } = await processRun(strut, actor, target.owner, target.repo, str(req.query.token));
+      const { entry, attached } = await processRun(strut, actor, target.owner, target.repo, getGithubToken(req));
       res.json({ request_id: entry.request_id, status: "pending", run_id: entry.run_id, ...(attached ? { attached: true } : {}) });
     } catch (e) {
       console.error("[lab/proxy] gitree/process launch failed:", e);
