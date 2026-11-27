@@ -13,7 +13,8 @@
 # Use an official Node.js runtime as a parent image. Pinned to the patch so a
 # security release is a visible bump here, not whatever the floating tag held
 # when the cache was made.
-ARG NODE_VERSION=22.23.4
+# strut declares engines.node ">=24.22.1", which yarn 1 enforces at install.
+ARG NODE_VERSION=24.22.3
 FROM node:${NODE_VERSION}-bookworm-slim
 
 # Set the working directory in the container
