@@ -234,7 +234,7 @@ pub async fn build_graph_for_files_with_options(
 
     let mut files_by_lang: Vec<(Language, Vec<String>)> = Vec::new();
     for file_path in files {
-        if let Some(lang) = Language::from_path(file_path) {
+        if let Some(lang) = detect_language_for_file(file_path) {
             if let Some((_, list)) = files_by_lang.iter_mut().find(|(l, _)| *l == lang) {
                 list.push(file_path.clone());
             } else {
@@ -385,9 +385,99 @@ pub fn first_lines(text: &str, n: usize, max_line_len: usize) -> String {
         .join("\n")
 }
 
+const MAX_ANCESTOR_SEARCH_DEPTH: usize = 8;
+
+/// Resolve a file's language, disambiguating extensions shared by multiple
+/// languages. `Language::from_path` alone always picks whichever language is
+/// listed first in `PROGRAMMING_LANGUAGES` (e.g. `.h` always becomes `C`, never
+/// `C++`; `.ts` always becomes `Typescript`, never `Angular`/`Svelte`), silently
+/// mis-parsing real files in mixed-language projects. This checks project
+/// indicator files (e.g. `angular.json`) first, then falls back to lightweight
+/// content sniffing for the C/C++ header case, which has no indicator file.
+pub fn detect_language_for_file(file_path: &str) -> Option<Language> {
+    let ext = Path::new(file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    if ext.is_empty() {
+        return None;
+    }
+    let candidates: Vec<Language> = lsp::language::PROGRAMMING_LANGUAGES
+        .iter()
+        .filter(|l| l.exts().iter().any(|e| e.eq_ignore_ascii_case(&ext)))
+        .cloned()
+        .collect();
+
+    match candidates.len() {
+        0 => None,
+        1 => candidates.into_iter().next(),
+        _ => Some(disambiguate_language(file_path, candidates)),
+    }
+}
+
+fn disambiguate_language(file_path: &str, candidates: Vec<Language>) -> Language {
+    for lang in &candidates {
+        let indicators = lang.required_indicator_files();
+        if !indicators.is_empty() && indicator_file_in_ancestors(file_path, &indicators) {
+            return lang.clone();
+        }
+    }
+
+    if candidates.contains(&Language::C) && candidates.contains(&Language::Cpp) {
+        return if looks_like_cpp_header(file_path) {
+            Language::Cpp
+        } else {
+            Language::C
+        };
+    }
+
+    candidates.into_iter().next().expect("candidates is non-empty")
+}
+
+fn indicator_file_in_ancestors(file_path: &str, indicators: &[&str]) -> bool {
+    let mut dir = Path::new(file_path).parent();
+    for _ in 0..MAX_ANCESTOR_SEARCH_DEPTH {
+        let Some(d) = dir else { break };
+        if indicators.iter().any(|ind| d.join(ind).is_file()) {
+            return true;
+        }
+        if d.join(".git").exists() {
+            break;
+        }
+        dir = d.parent();
+    }
+    false
+}
+
+/// Cheap heuristic: does this header look like C++ rather than plain C?
+/// Only ever consulted for `.h` files, since every other C/C++ extension is unambiguous.
+fn looks_like_cpp_header(file_path: &str) -> bool {
+    let Ok(mut f) = std::fs::File::open(file_path) else {
+        return false;
+    };
+    let mut buf = Vec::new();
+    if f.by_ref().take(8192).read_to_end(&mut buf).is_err() {
+        return false;
+    }
+    let text = String::from_utf8_lossy(&buf);
+    const CPP_SIGNALS: &[&str] = &[
+        "class ",
+        "template<",
+        "template <",
+        "namespace ",
+        "::",
+        "public:",
+        "private:",
+        "protected:",
+        "std::",
+    ];
+    CPP_SIGNALS.iter().any(|sig| text.contains(sig))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{apply_glob_filters, apply_glob_filters_with_base};
+    use super::{apply_glob_filters, apply_glob_filters_with_base, detect_language_for_file};
     use std::fs;
 
     fn mk_file(path: &std::path::Path, body: &str) {
@@ -464,5 +554,74 @@ mod tests {
             &[],
         );
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn plain_header_without_indicators_detected_as_c() {
+        let td = tempfile::tempdir().expect("tempdir");
+        let root = td.path();
+        mk_file(&root.join("model.h"), "typedef struct { int id; } Person;\n");
+
+        let lang = detect_language_for_file(&root.join("model.h").to_string_lossy());
+        assert_eq!(lang, Some(lsp::Language::C));
+    }
+
+    #[test]
+    fn header_with_cpp_class_detected_as_cpp() {
+        let td = tempfile::tempdir().expect("tempdir");
+        let root = td.path();
+        mk_file(
+            &root.join("model.h"),
+            "class Database {\npublic:\n    Database();\n};\n",
+        );
+
+        let lang = detect_language_for_file(&root.join("model.h").to_string_lossy());
+        assert_eq!(lang, Some(lsp::Language::Cpp));
+    }
+
+    #[test]
+    fn header_with_namespace_detected_as_cpp() {
+        let td = tempfile::tempdir().expect("tempdir");
+        let root = td.path();
+        mk_file(&root.join("config.h"), "namespace app {\n  int version();\n}\n");
+
+        let lang = detect_language_for_file(&root.join("config.h").to_string_lossy());
+        assert_eq!(lang, Some(lsp::Language::Cpp));
+    }
+
+    #[test]
+    fn ts_file_in_angular_project_detected_as_angular() {
+        let td = tempfile::tempdir().expect("tempdir");
+        let root = td.path();
+        mk_file(&root.join("angular.json"), "{}");
+        mk_file(
+            &root.join("src/app/app.component.ts"),
+            "export class AppComponent {}\n",
+        );
+
+        let lang = detect_language_for_file(
+            &root.join("src/app/app.component.ts").to_string_lossy(),
+        );
+        assert_eq!(lang, Some(lsp::Language::Angular));
+    }
+
+    #[test]
+    fn ts_file_without_angular_json_detected_as_typescript() {
+        let td = tempfile::tempdir().expect("tempdir");
+        let root = td.path();
+        mk_file(&root.join("src/index.ts"), "export const x = 1;\n");
+
+        let lang = detect_language_for_file(&root.join("src/index.ts").to_string_lossy());
+        assert_eq!(lang, Some(lsp::Language::Typescript));
+    }
+
+    #[test]
+    fn unambiguous_extension_still_resolves() {
+        let td = tempfile::tempdir().expect("tempdir");
+        let root = td.path();
+        mk_file(&root.join("main.rs"), "fn main() {}\n");
+
+        let lang = detect_language_for_file(&root.join("main.rs").to_string_lossy());
+        assert_eq!(lang, Some(lsp::Language::Rust));
     }
 }
