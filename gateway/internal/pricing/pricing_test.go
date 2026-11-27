@@ -236,3 +236,46 @@ func TestFetch_BadBodyKeepsLastGood(t *testing.T) {
 		t.Fatal("unparseable body must not be persisted over the cache")
 	}
 }
+
+func TestParseDatasheet_Limits(t *testing.T) {
+	const sheet = `{
+  "claude-sonnet-5": {"input_cost_per_token": 2e-06, "output_cost_per_token": 1e-05,
+    "max_input_tokens": 200000, "max_output_tokens": 64000},
+  "xai/grok-4": {"input_cost_per_token": 3e-06, "output_cost_per_token": 1.5e-05,
+    "max_input_tokens": 256000},
+  "plain": {"input_cost_per_token": 1e-06, "output_cost_per_token": 1e-06}
+}`
+	m, l, err := parseDatasheetFull([]byte(sheet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	table.Store(&m)
+	limits.Store(&l)
+	t.Cleanup(func() { SetTableForTest(nil) })
+
+	got, ok := Limits("anthropic", "anthropic/claude-sonnet-5")
+	if !ok || got.MaxInputTokens != 200000 || got.MaxOutputTokens != 64000 {
+		t.Fatalf("Limits = %+v %v", got, ok)
+	}
+	got, ok = Limits("xai", "grok-4")
+	if !ok || got.MaxInputTokens != 256000 || got.MaxOutputTokens != 0 {
+		t.Fatalf("Limits xai = %+v %v", got, ok)
+	}
+	if _, ok := Limits("", "plain"); ok {
+		t.Fatal("row without limits must report ok=false")
+	}
+	if st := Status(); !st.Loaded || st.Models != 3 {
+		t.Fatalf("Status = %+v", st)
+	}
+}
+
+func TestPrice_Effective(t *testing.T) {
+	e := Price{InputPerMTok: 2, OutputPerMTok: 10}.Effective()
+	if e.CacheReadPerMTok != 2 || e.CacheWritePerMTok != 2 || e.CacheWrite1hPerMTok != 2 {
+		t.Fatalf("fallbacks: %+v", e)
+	}
+	e = Price{InputPerMTok: 2, CacheWritePerMTok: 3}.Effective()
+	if e.CacheWrite1hPerMTok != 3 {
+		t.Fatalf("1h falls back to write: %+v", e)
+	}
+}

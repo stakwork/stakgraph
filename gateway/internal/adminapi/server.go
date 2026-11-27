@@ -210,6 +210,13 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 	// Anonymous routes.
 	mux.HandleFunc("/_plugin/health", healthHandler)
 
+	// Read-only price lookup other services use to price calls like
+	// the gateway does. Prices and limits only (the datasheet is
+	// public), so no auth. Exact paths: the bearer-only
+	// /_plugin/pricing below stays a separate exact pattern.
+	mux.HandleFunc(pricingModelPath, pricingModelHandler)
+	mux.HandleFunc(pricingStatusPath, pricingStatusHandler)
+
 	// Bearer-only routes (Hive's territory).
 	mux.HandleFunc("/_plugin/admin-credentials",
 		bearer(adminCredentialsHandler(deps.adminUser, deps.adminPass)))

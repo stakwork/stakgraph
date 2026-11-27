@@ -120,17 +120,17 @@ func RuntimePricing() map[string]ModelPrice {
 	return cloneRows(*m)
 }
 
-func runtimePrice(keys []string) (ModelPrice, bool) {
+func runtimePrice(keys []string) (string, ModelPrice, bool) {
 	m := runtimeTable.Load()
 	if m == nil || len(*m) == 0 {
-		return ModelPrice{}, false
+		return "", ModelPrice{}, false
 	}
 	for _, k := range keys {
 		if entry, ok := (*m)[k]; ok {
-			return entry, true
+			return k, entry, true
 		}
 	}
-	return ModelPrice{}, false
+	return "", ModelPrice{}, false
 }
 
 func validateRuntimePricing(rows map[string]ModelPrice) error {

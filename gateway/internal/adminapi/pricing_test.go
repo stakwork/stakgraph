@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/stakwork/stakgraph/gateway/internal/auth"
+	"github.com/stakwork/stakgraph/gateway/internal/pricing"
 )
 
 // newPricingServer serves the real routing table with the runtime
@@ -147,5 +148,81 @@ func TestPricing_MethodNotAllowed(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusMethodNotAllowed || resp.Header.Get("Allow") != "GET, PUT" {
 		t.Fatalf("POST = %d Allow=%q, want 405 GET, PUT", resp.StatusCode, resp.Header.Get("Allow"))
+	}
+}
+
+func getAnon(t *testing.T, srv *httptest.Server, path string) (*http.Response, map[string]any) {
+	t.Helper()
+	resp := do(t, srv, http.MethodGet, path, nil, false)
+	defer resp.Body.Close()
+	var body map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&body)
+	return resp, body
+}
+
+func TestPricingModel_Anonymous(t *testing.T) {
+	srv, _ := newPricingServer(t)
+	auth.SetConfigForTest(auth.Config{})
+	t.Cleanup(func() { auth.SetConfigForTest(auth.Config{}); pricing.SetTableForTest(nil) })
+	pricing.SetTableForTest(map[string]pricing.Price{
+		"xai/grok-4": {InputPerMTok: 3, OutputPerMTok: 15},
+	})
+	pricing.SetLimitsForTest(map[string]pricing.ModelLimits{"xai/grok-4": {MaxInputTokens: 256000}})
+
+	resp, body := getAnon(t, srv, pricingModelPath+"?provider=xai&model=grok-4")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	if resp.Header.Get("Cache-Control") != "max-age=300" {
+		t.Fatalf("Cache-Control = %q", resp.Header.Get("Cache-Control"))
+	}
+	if body["key"] != "xai/grok-4" || body["source"] != "catalog" || body["provider"] != "xai" || body["model"] != "grok-4" {
+		t.Fatalf("body = %v", body)
+	}
+	// Zero cache rates fall back to the effective ones.
+	if body["input_per_mtok"] != 3.0 || body["output_per_mtok"] != 15.0 ||
+		body["cache_read_per_mtok"] != 3.0 || body["cache_write_per_mtok"] != 3.0 ||
+		body["cache_write_1h_per_mtok"] != 3.0 {
+		t.Fatalf("rates = %v", body)
+	}
+	if body["max_input_tokens"] != 256000.0 {
+		t.Fatalf("max_input_tokens = %v", body["max_input_tokens"])
+	}
+	if _, has := body["max_output_tokens"]; has {
+		t.Fatal("max_output_tokens must be omitted when unknown")
+	}
+
+	resp, body = getAnon(t, srv, pricingModelPath+"?model=nope")
+	if resp.StatusCode != http.StatusNotFound || body["error"] != "unpriced" || body["model"] != "nope" {
+		t.Fatalf("unpriced = %d %v", resp.StatusCode, body)
+	}
+	resp, _ = getAnon(t, srv, pricingModelPath+"?provider=xai")
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("no model = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestPricingStatus_Anonymous(t *testing.T) {
+	srv, _ := newPricingServer(t)
+	auth.SetConfigForTest(auth.Config{ModelPricing: map[string]auth.ModelPrice{"a": {InputPerMTok: 1}}})
+	t.Cleanup(func() { auth.SetConfigForTest(auth.Config{}); pricing.SetTableForTest(nil) })
+	pricing.SetTableForTest(map[string]pricing.Price{"x": {InputPerMTok: 1}, "y": {InputPerMTok: 1}})
+
+	resp, body := getAnon(t, srv, pricingStatusPath)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	cat, _ := body["catalog"].(map[string]any)
+	if cat["loaded"] != true || cat["models"] != 2.0 {
+		t.Fatalf("catalog = %v", cat)
+	}
+	if body["runtime_rows"] != 0.0 || body["config_rows"] != 1.0 {
+		t.Fatalf("rows = %v", body)
+	}
+	// The exact bearer-only path still routes to the old handler.
+	r := do(t, srv, http.MethodGet, pricingPath, nil, false)
+	r.Body.Close()
+	if r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("/_plugin/pricing anon = %d, want 401", r.StatusCode)
 	}
 }
