@@ -5027,10 +5027,19 @@ function-bind@^1.1.2:
   resolved "https://registry.npmjs.org/function-bind/-/function-bind-1.1.2.tgz"
   integrity sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA==
 
-gatekey@^0.1.1:
+"gatekey-v1@npm:gatekey@0.1.1":
   version "0.1.1"
   resolved "https://registry.yarnpkg.com/gatekey/-/gatekey-0.1.1.tgz#81d5fc76100824d0bff1e15529a0d7ff2fa06bd8"
   integrity sha512-vpJw5sLToc3yfHm4U9Dg8+KPcpvUdWThaCvknNE5c+0jZgV2ZGd0aP64YXygC43I8lxFmCLViyvFQb244Ingbg==
+  dependencies:
+    "@noble/curves" "^1.6.0"
+    "@noble/hashes" "^1.5.0"
+    canonicalize "^2.0.0"
+
+gatekey@^1.1.0:
+  version "1.1.0"
+  resolved "https://registry.yarnpkg.com/gatekey/-/gatekey-1.1.0.tgz#3e1387bc56d39cb41fea4dea95933dd46fa62f32"
+  integrity sha512-rWtRzcS+GTBccqjH65Yh4kazOc9oCh9PMMlcXU/OyQoao+EUbtkgbm09bw0obcSQUYrtzQJK2rhaFir/3FPuEw==
   dependencies:
     "@noble/curves" "^1.6.0"
     "@noble/hashes" "^1.5.0"
@@ -7161,9 +7170,9 @@ strnum@^2.1.2:
   resolved "https://registry.npmjs.org/strnum/-/strnum-2.1.2.tgz"
   integrity sha512-l63NF9y/cLROq/yqKXSLtcMeeyOfnSQlfMSlzFt/K73oIaD8DGaQWd7Z34X9GPiKqP5rbSh84Hl4bOlLcjiSrQ==
 
-"strut@git+https://github.com/stakwork/strut.git#79ec779eea7c244e5f66ccf7be1c8a6647a1e144":
+"strut@git+https://github.com/stakwork/strut.git#a87991ca6cb740f686fe2555b0a7cafd2782840b":
   version "0.1.0"
-  resolved "git+https://github.com/stakwork/strut.git#79ec779eea7c244e5f66ccf7be1c8a6647a1e144"
+  resolved "git+https://github.com/stakwork/strut.git#a87991ca6cb740f686fe2555b0a7cafd2782840b"
   dependencies:
     "@ai-sdk/google" "4.0.74"
     "@ai-sdk/openai" "4.0.69"
@@ -7180,7 +7189,8 @@ strnum@^2.1.2:
     "@octokit/rest" "^22.0.1"
     "@openrouter/ai-sdk-provider" "3.0.0"
     esbuild "0.28.2"
-    gatekey "^0.1.1"
+    gatekey "^1.1.0"
+    gatekey-v1 "npm:gatekey@0.1.1"
     hono "^4.12.23"
     html-to-text "^10.0.1"
     js-yaml "^4.1.1"
