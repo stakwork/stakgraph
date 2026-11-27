@@ -47,3 +47,22 @@ export async function formatConceptWithDetails(
     })),
   };
 }
+
+/**
+ * GitHub token for a request. Precedence: `x-github-token` header, then JSON
+ * body `token`, then query `token` (legacy; query strings land in access logs).
+ */
+export function getGithubToken(req: {
+  header(name: string): string | undefined;
+  body?: unknown;
+  query?: unknown;
+}): string | undefined {
+  const nonEmpty = (v: unknown) => (typeof v === "string" && v ? v : undefined);
+  const body = req.body as { token?: unknown } | undefined;
+  const query = req.query as { token?: unknown } | undefined;
+  return (
+    nonEmpty(req.header("x-github-token")) ||
+    nonEmpty(body && typeof body === "object" ? body.token : undefined) ||
+    nonEmpty(query?.token)
+  );
+}

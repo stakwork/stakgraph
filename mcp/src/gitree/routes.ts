@@ -15,7 +15,7 @@ import {
   Provider,
 } from "aieo";
 import { generateObject, jsonSchema } from "ai";
-import { formatConceptWithDetails } from "./utils.js";
+import { formatConceptWithDetails, getGithubToken } from "./utils.js";
 import { listConcepts, createConceptDirect, HttpError } from "./service.js";
 import {
   toReturnNode,
@@ -132,7 +132,7 @@ export async function gitree_process(req: Request, res: Response) {
   let owner = req.query.owner as string;
   let repo = req.query.repo as string;
   const repoUrl = req.query.repo_url as string;
-  const githubTokenQuery = req.query.token as string;
+  const githubTokenQuery = getGithubToken(req) as string;
   const shouldSummarize = req.query.summarize === "true";
   const shouldLink = req.query.link === "true";
   const shouldAnalyzeClues = req.query.analyze_clues === "true";
@@ -1203,7 +1203,7 @@ export async function gitree_analyze_clues(req: Request, res: Response) {
     const conceptId = req.query.concept_id as string | undefined;
     const force = req.query.force === "true";
     const autoLink = req.query.auto_link !== "false"; // Default true
-    const pat = req.query.token as string | undefined;
+    const pat = getGithubToken(req);
 
     if (!owner || !repo) {
       asyncReqs.failReq(request_id, new Error("owner and repo are required"));
@@ -1281,7 +1281,7 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
     const owner = req.query.owner as string;
     const repo = req.query.repo as string;
     const force = req.query.force === "true";
-    const pat = req.query.token as string | undefined;
+    const pat = getGithubToken(req);
 
     if (!owner || !repo) {
       asyncReqs.failReq(request_id, new Error("owner and repo are required"));
