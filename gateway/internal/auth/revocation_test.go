@@ -22,6 +22,38 @@ func TestCheckRevocations_ObservabilityMode_NoOp(t *testing.T) {
 	}
 }
 
+func TestCheckRevocations_NoRedis_EnforceOn_FailsClosed(t *testing.T) {
+	redisclient.SetClientForTest(nil)
+	SetConfigForTest(Config{EnforceMacaroons: true})
+	t.Cleanup(func() { SetConfigForTest(Config{}) })
+	claims := &macaroon.Claims{
+		UserID: testUserID,
+		Nonces: []string{"aaaa000000000000000000000000aaaa"},
+		IAT:    time.Now().UTC().Format(time.RFC3339),
+	}
+	err := CheckRevocations(context.Background(), claims)
+	if err == nil {
+		t.Fatalf("want revocation_check_unavailable, got nil")
+	}
+	if err.Code != "revocation_check_unavailable" || err.HTTPStatus != 401 {
+		t.Fatalf("got %+v", err)
+	}
+}
+
+func TestCheckRevocations_NoRedis_EnforceOff_NoOp(t *testing.T) {
+	redisclient.SetClientForTest(nil)
+	SetConfigForTest(Config{EnforceMacaroons: false})
+	t.Cleanup(func() { SetConfigForTest(Config{}) })
+	claims := &macaroon.Claims{
+		UserID: testUserID,
+		Nonces: []string{"aaaa000000000000000000000000aaaa"},
+		IAT:    time.Now().UTC().Format(time.RFC3339),
+	}
+	if err := CheckRevocations(context.Background(), claims); err != nil {
+		t.Fatalf("enforcement off should be a no-op, got %+v", err)
+	}
+}
+
 func TestCheckRevocations_AllClear(t *testing.T) {
 	mr := newMiniRedis(t)
 	_ = mr // just need it spun up; no keys set

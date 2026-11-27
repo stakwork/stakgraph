@@ -7,6 +7,7 @@ import (
 
 	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginctx"
+	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
 )
 
 // capClaims: a two-layer chain (parent $5/100 steps → child $2/40
@@ -343,4 +344,26 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+func TestCheckCaps_NoRedis_BudgetsEnforced_FailsClosed(t *testing.T) {
+	redisclient.SetClientForTest(nil)
+	SetConfigForTest(Config{EnforceMacaroons: true, EnforceBudgets: true})
+	t.Cleanup(func() { SetConfigForTest(Config{}) })
+	err := CheckCaps(context.Background(), capClaims(), "", time.Now())
+	if err == nil {
+		t.Fatalf("want budget_check_unavailable, got nil")
+	}
+	if err.Code != "budget_check_unavailable" || err.HTTPStatus != 402 {
+		t.Fatalf("got %+v", err)
+	}
+}
+
+func TestCheckCaps_NoRedis_EnforcementOff_NoOp(t *testing.T) {
+	redisclient.SetClientForTest(nil)
+	SetConfigForTest(Config{EnforceMacaroons: true, EnforceBudgets: false})
+	t.Cleanup(func() { SetConfigForTest(Config{}) })
+	if err := CheckCaps(context.Background(), capClaims(), "", time.Now()); err != nil {
+		t.Fatalf("enforcement off should be a no-op, got %+v", err)
+	}
 }
