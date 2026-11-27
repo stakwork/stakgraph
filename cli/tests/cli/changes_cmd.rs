@@ -217,6 +217,160 @@ fn changes_diff_scope_normalizes_dot_slash_and_trailing_slash() {
     );
 }
 
+fn init_git_repo_with_committed_node_changes() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("tempdir failed");
+    let root = dir.path();
+
+    run_cmd(root, &["git", "init"]);
+    run_cmd(root, &["git", "config", "user.email", "test@example.com"]);
+    run_cmd(root, &["git", "config", "user.name", "Test User"]);
+
+    write_file(
+        root,
+        "src/lib.rs",
+        "pub fn one() -> i32 {\n    1\n}\n\npub fn gone() -> i32 {\n    0\n}\n",
+    );
+    run_cmd(root, &["git", "add", "."]);
+    run_cmd(root, &["git", "commit", "-m", "initial"]);
+
+    write_file(
+        root,
+        "src/lib.rs",
+        "pub fn one() -> i32 {\n    2\n}\n\npub fn two() -> i32 {\n    one()\n}\n",
+    );
+    run_cmd(root, &["git", "add", "."]);
+    run_cmd(root, &["git", "commit", "-m", "second"]);
+
+    dir
+}
+
+fn node_names(payload: &Value, key: &str) -> Vec<String> {
+    payload["data"][key]
+        .as_array()
+        .expect("node array")
+        .iter()
+        .filter_map(|n| {
+            n["name"]
+                .as_str()
+                .or_else(|| n["after"]["name"].as_str())
+                .map(str::to_string)
+        })
+        .collect()
+}
+
+#[test]
+fn changes_diff_last_reports_removed_and_modified_nodes() {
+    let repo = init_git_repo_with_committed_node_changes();
+    let cwd = repo.path().to_string_lossy().to_string();
+    let out = run_stakgraph_in_cwd(&cwd, &["--json", "changes", "diff", "--last", "1"]);
+
+    assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
+    let payload: Value = serde_json::from_str(&out.stdout).expect("valid json stdout");
+    assert_eq!(payload["ok"], true);
+
+    let added = node_names(&payload, "added_nodes");
+    let removed = node_names(&payload, "removed_nodes");
+    let modified = node_names(&payload, "modified_nodes");
+
+    assert!(
+        added.iter().any(|n| n == "two"),
+        "fn two must be reported added; stdout: {}",
+        out.stdout
+    );
+    assert!(
+        removed.iter().any(|n| n == "gone"),
+        "fn gone must be reported removed; stdout: {}",
+        out.stdout
+    );
+    assert!(
+        modified.iter().any(|n| n == "one"),
+        "fn one must be reported modified; stdout: {}",
+        out.stdout
+    );
+    assert!(
+        !added.iter().any(|n| n == "one"),
+        "fn one must not be reported added; stdout: {}",
+        out.stdout
+    );
+    assert!(
+        payload["data"]["summary"]["nodes_removed"].as_u64().unwrap_or(0) >= 1
+            && payload["data"]["summary"]["nodes_modified"].as_u64().unwrap_or(0) >= 1,
+        "summary must count removed and modified nodes; stdout: {}",
+        out.stdout
+    );
+}
+
+fn init_git_repo_with_rewired_call() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("tempdir failed");
+    let root = dir.path();
+
+    run_cmd(root, &["git", "init"]);
+    run_cmd(root, &["git", "config", "user.email", "test@example.com"]);
+    run_cmd(root, &["git", "config", "user.name", "Test User"]);
+
+    write_file(
+        root,
+        "src/lib.rs",
+        "pub fn one() -> i32 {\n    1\n}\n\npub fn caller() -> i32 {\n    one()\n}\n",
+    );
+    run_cmd(root, &["git", "add", "."]);
+    run_cmd(root, &["git", "commit", "-m", "initial"]);
+
+    write_file(
+        root,
+        "src/lib.rs",
+        "pub fn one() -> i32 {\n    1\n}\n\npub fn helper() -> i32 {\n    5\n}\n\npub fn caller() -> i32 {\n    helper()\n}\n",
+    );
+    run_cmd(root, &["git", "add", "."]);
+    run_cmd(root, &["git", "commit", "-m", "rewire caller"]);
+
+    dir
+}
+
+fn edge_pairs(payload: &Value, key: &str) -> Vec<(String, String)> {
+    payload["data"][key]
+        .as_array()
+        .expect("edge array")
+        .iter()
+        .filter_map(|e| {
+            Some((
+                e["source_name"].as_str()?.to_string(),
+                e["target_name"].as_str()?.to_string(),
+            ))
+        })
+        .collect()
+}
+
+#[test]
+fn changes_diff_range_reports_edge_changes() {
+    let repo = init_git_repo_with_rewired_call();
+    let cwd = repo.path().to_string_lossy().to_string();
+    let out = run_stakgraph_in_cwd(
+        &cwd,
+        &["--json", "changes", "diff", "--range", "HEAD~1..HEAD"],
+    );
+
+    assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
+    let payload: Value = serde_json::from_str(&out.stdout).expect("valid json stdout");
+
+    let removed = edge_pairs(&payload, "removed_edges");
+    let added = edge_pairs(&payload, "added_edges");
+    assert!(
+        removed
+            .iter()
+            .any(|(s, t)| s == "caller" && t == "one"),
+        "call edge caller -> one must be reported removed; stdout: {}",
+        out.stdout
+    );
+    assert!(
+        added
+            .iter()
+            .any(|(s, t)| s == "caller" && t == "helper"),
+        "call edge caller -> helper must be reported added; stdout: {}",
+        out.stdout
+    );
+}
+
 #[test]
 fn changes_list_json_outputs_machine_readable_payload() {
     let repo = init_git_repo();
