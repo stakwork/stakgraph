@@ -256,7 +256,7 @@ released the pod at the end.
   go through this run's LLM gateway grant (`ctx.services.llmAuth`) — never
   the pod's own key, never a caller-supplied one. The grant's macaroon rides
   INSIDE the key handed to staklink, `<vk>.<macaroon>` (the gateway wrapper
-  splits it; `gateway/wrapper/authsplit.go`): goose's anthropic provider
+  splits it; stakwork/mothership `wrapper/authsplit.go`): goose's anthropic provider
   sends no custom headers, so as an `x-macaroon` header it never arrived.
 - **The pool config** (strut plans/pod-config.md). What a pod changes in
   itself dies with it; hive's pool config for the workspace (`services`,
