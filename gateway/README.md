@@ -23,7 +23,7 @@ expects.
 gateway/
 ├── main.go            # plugin entry points (Init, GetName, Cleanup, *Hook)
 │                      #   one-line delegations into internal/ — auditable at a glance
-├── go.mod             # pinned: bifrost/core v1.5.10, Go 1.26.2
+├── go.mod             # pinned: bifrost/core v1.15.1 + mcp-go fork replace, Go 1.27.3
 ├── Makefile           # local + docker + UI build targets
 ├── Dockerfile         # bifrost-http + plugin .so + wrapper + admin UI, all in one image
 ├── docker-compose.yml # host 8181 -> container 8181, named volume for /app/data
@@ -44,9 +44,12 @@ gateway/
 │   ├── go.mod         # stdlib-only Go module (separate from plugin's bifrost dep)
 │   ├── main.go        # PID-1 binary: owns :8181, fronts bifrost + /_plugin/*
 │   ├── logsoffload.go # BIFROST_LOGS_S3_* -> config.json logs_store (+ 30-day retention)
-│   └── legacy.go      # preflight, move the pre-offload logs.db aside, archive it
-└── logarchive/        # /app/logs-archive: S3 preflight + legacy logs.db upload
-                       #   (own module, AWS SDK pinned to bifrost's versions)
+│   ├── legacy.go      # preflight, move the pre-offload logs.db aside, archive it
+│   └── wif.go         # Anthropic auth mode + config.json rewrite + id-token supervision
+├── logarchive/        # /app/logs-archive: S3 preflight + legacy logs.db upload
+│                      #   (own module, AWS SDK pinned to bifrost's versions)
+└── idtoken/           # /app/id-token: mints the Anthropic identity token (AWS STS
+                       #   GetWebIdentityToken); own module, newer AWS SDK
 ```
 
 ## Process layout inside the container
@@ -79,7 +82,7 @@ as the dashboard, with one TLS terminator at the swarm/ingress edge.
 
 The upstream `maximhq/bifrost:latest` is statically linked and **cannot
 load `.so` plugins** ([docs](https://docs.getbifrost.ai/plugins/building-dynamic-binary)).
-The `Dockerfile` here clones `bifrost` at a pinned tag (`transports/v2.2.2`, the Dockerfile's `BIFROST_VERSION`),
+The `Dockerfile` here clones `bifrost` at a pinned tag (`transports/v2.5.1`, the Dockerfile's `BIFROST_VERSION`),
 builds `bifrost-http` with CGO + dynamic linking, builds our plugin
 against the same source tree (avoiding the "plugin was built with a
 different version of package" trap), builds the (stdlib-only) wrapper
@@ -276,7 +279,7 @@ make docker-build
 cd auth/ts && npm install && node --import tsx ../../scripts/custom-provider-e2e.ts
 ```
 
-What it shows, on bifrost `transports/v2.2.2`:
+What it shows, on bifrost `transports/v2.5.1`:
 
 - **A custom provider takes two calls.** First `POST /api/providers` with
   `network_config` (`base_url`, plus `allow_private_network` for an address
@@ -473,6 +476,186 @@ upstream (no provider keys, no spend):
 make docker-build
 scripts/logs-s3-e2e.sh
 ```
+
+## Anthropic workload identity federation (EC2 instance profile)
+
+The gateway can authenticate to Anthropic without a static
+`ANTHROPIC_API_KEY`, using the EC2 instance profile of the box it runs on
+([Bifrost docs](https://docs.getbifrost.ai/providers/supported-providers/anthropic),
+Anthropic workload identity federation). It only takes effect when
+`ANTHROPIC_API_KEY` is empty; with the key set, nothing changes.
+
+How it works. Bifrost (`transports/v2.5.1`) does not call AWS. A key with
+`anthropic_key_config.workload_identity` makes it read an identity JWT from
+a file and exchange it at `https://api.anthropic.com/v1/oauth/token` for a
+short-lived access token, which it caches and refreshes. The JWT comes from
+`/app/id-token` (`idtoken/`), which calls AWS STS `GetWebIdentityToken`
+with the instance profile credentials (audience `https://api.anthropic.com`,
+RS256) and rewrites `/var/run/secrets/anthropic.com/token` every 240 s.
+The rewrite matters: a JWT with a `jti` is accepted by Anthropic once, so
+Bifrost needs a fresh file whenever it exchanges again.
+
+**Mode selection**, decided once at boot by the wrapper (`wrapper/wif.go`)
+and logged as `anthropic auth mode: …`:
+
+| `ANTHROPIC_API_KEY` | `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID` | Mode |
+| ------------------- | ------------------------------------------------------------------------------------------- | ---- |
+| set                 | any                                                                                         | `api-key`. The API key wins; `config.json` is the seed byte for byte. |
+| empty               | all three set                                                                               | `workload-identity` |
+| empty               | any missing                                                                                 | `none`: `config.json` unchanged, `WARNING` naming what is missing; Anthropic requests fail. |
+
+In `workload-identity` mode the wrapper (1) writes `config.json` with
+`providers.anthropic.keys[0]` rewritten: `value` removed and an
+`anthropic_key_config.workload_identity` block added (`name`, `models` and
+`weight` kept; ids stay `env.*` references), (2) runs `id-token -once`
+before Bifrost starts, so the first token exists when Bifrost boots, and
+(3) keeps `id-token` running for the life of the container. If the first
+mint fails the wrapper logs an `ERROR` and starts Bifrost anyway, so the
+other providers keep working; the helper keeps retrying (5 s doubling to
+60 s) and the previous token file is kept on a failed refresh.
+
+| Variable | Meaning |
+| -------- | ------- |
+| `ANTHROPIC_FEDERATION_RULE_ID` | `fdrl_…`, the federation rule in the Anthropic console. |
+| `ANTHROPIC_ORGANIZATION_ID`    | Anthropic organization UUID. |
+| `ANTHROPIC_SERVICE_ACCOUNT_ID` | `svac_…`, the service account the minted token acts as. |
+| `ANTHROPIC_WORKSPACE_ID`       | `wrkspc_…`. Optional (needed when the rule spans several workspaces); passed through when set. |
+| `AWS_REGION`                   | Region of the STS endpoint (`https://sts.<region>.amazonaws.com`). Required in this mode (`AWS_DEFAULT_REGION` also works). |
+| `ANTHROPIC_IDENTITY_TOKEN_FILE` | Default `/var/run/secrets/anthropic.com/token`. Bifrost only reads tokens under `/var/run/secrets` or `/run/secrets` (or `BIFROST_OIDC_ALLOWED_CREDENTIAL_DIRS`); the image creates that directory owned by the `app` user. |
+| `ANTHROPIC_IDENTITY_TOKEN_AUDIENCE` | Default `https://api.anthropic.com`. |
+| `ANTHROPIC_IDENTITY_TOKEN_DURATION_SECONDS` | Token lifetime, 60-3600, default 600. |
+| `ANTHROPIC_IDENTITY_TOKEN_REFRESH_SECONDS` | Rewrite interval, default 240, must be below the duration. |
+| `ANTHROPIC_IDENTITY_TOKEN_SIGNING_ALGORITHM` | `RS256` (default) or `ES384`. |
+
+**AWS and Anthropic setup** (none of this is checked by the gateway; a
+wrong setup shows up as `[id-token] ERROR` lines or Anthropic 401s):
+
+- The instance role needs `sts:GetWebIdentityToken`.
+- AWS outbound identity federation must be enabled for the AWS account.
+  `GetWebIdentityToken` is not served by the global STS endpoint, hence
+  `AWS_REGION`.
+- The federation rule and issuer in the Anthropic console must match the
+  claims of the role's JWT, with audience `https://api.anthropic.com`.
+- **IMDS hop limit.** The container reaches the instance profile
+  credentials through IMDSv2, whose PUT response must cross one extra
+  network hop: set the instance's metadata option
+  `HttpPutResponseHopLimit` to 2
+  (`aws ec2 modify-instance-metadata-options --instance-id i-… --http-put-response-hop-limit 2 --http-tokens required`),
+  or the helper fails with a credentials error from inside Docker.
+- With Docker Swarm secrets mounted at `/run/secrets`, point
+  `ANTHROPIC_IDENTITY_TOKEN_FILE` at a directory the `app` user can write.
+
+**Rollout order**
+
+1. Deploy this gateway image with the static `ANTHROPIC_API_KEY` still set.
+   Nothing changes: the log says `anthropic auth mode: api-key`.
+2. Add the three federation variables (and `ANTHROPIC_WORKSPACE_ID` if
+   needed) plus `AWS_REGION`, keeping the key. Check the boot log: it still
+   says `api-key` and names the federation variables it ignores (the API
+   key wins). This proves the variables arrive before anything depends on
+   them.
+3. Remove `ANTHROPIC_API_KEY` and redeploy. The log says
+   `anthropic auth mode: workload-identity`, then `[id-token] wrote
+   identity token …`. Send an Anthropic request through a virtual key and
+   check it succeeds.
+4. Revoke the static key in the Anthropic console.
+
+To go back, set `ANTHROPIC_API_KEY` again and redeploy.
+
+**`config.db` and the key's identity.** `config.json` is re-seeded on every
+boot, and Bifrost reconciles its provider keys with the ones stored in
+`config.db` by key name and hash: a key that changed in the file wins, and
+the stored key keeps its ID. The hash covers `anthropic_key_config`, so
+switching `anthropic-key-1` between `value` and `workload_identity`, in
+either direction, is written through to an existing `config.db` (checked
+by booting a `transports/v2.5.0` `bifrost-http` against one `config.db`:
+the key row kept its ID and flipped each way). The key deliberately
+keeps its name: a new name would delete the old key row, and with it
+the links from virtual-key provider configs to that key.
+
+## Upgrading Bifrost
+
+**Back up the data volume first.** `stakgraph-gateway-data` (mounted at
+`/app/data`) holds `config.db` (provider keys, virtual keys, budgets) and
+`logs.db`. Bifrost migrates both on the first boot of a new version, and a
+migration cannot be undone by starting the old image again. From the
+changelogs between `v2.2.2` and `v2.5.1`: most migrations only add columns or
+tables, which an older binary ignores, but several are marked non-reversible
+(for example `move_config_json_vk_limits_to_model_configs`,
+`make_mcp_oauth_flows_state_unique`, which deletes rows,
+`add_batch_jobs_due_index`, which clears values, and v2.5.0's
+`add_anthropic_workload_identity_column`), and v2.3.0 also rebuilds the
+`logs` indexes. A rollback is therefore image plus the backup, not the image
+alone.
+
+```bash
+docker compose stop bifrost          # a consistent copy: no writer on the SQLite files
+docker run --rm -v stakgraph-gateway-data:/data -v "$PWD":/backup alpine \
+  tar czf /backup/gateway-data-$(date +%F).tgz -C /data .
+```
+
+Restore (into an empty or replaced volume, with the gateway stopped):
+
+```bash
+docker compose down
+docker volume rm stakgraph-gateway-data
+docker volume create stakgraph-gateway-data
+docker run --rm -v stakgraph-gateway-data:/data -v "$PWD":/backup alpine \
+  tar xzf /backup/gateway-data-YYYY-MM-DD.tgz -C /data
+```
+
+The first boot on an existing `logs.db` can be slow: v2.3.0 replaces the
+single-column `logs` indexes with `(column, timestamp)` composites, built at
+startup on SQLite (only Postgres builds them in a background job,
+`framework/logstore/migrations.go`, `runTimestampIndexMigration`). The image's health check therefore has a 120 s start
+period (`Dockerfile`, `docker-compose.yml`). The wrapper waits 60 s
+(`readinessTimeout`, `wrapper/main.go`) for bifrost-http to answer `/health`
+and exits if it does not, after which `restart: unless-stopped` starts it
+again; a very large `logs.db` that needs longer than that would restart the
+migration in a loop. If you see `bifrost-http never became ready` on the first
+boot after an upgrade, start it once with a longer wait or on a copy to see how
+long the migration takes.
+
+### Compat defaults (`client.compat` in `data/config.json`)
+
+Since v2.2.6/v2.3.0 Bifrost's compat plugin does two things the v2.2.x
+gateway did not. Both default to on, also for a `config.json` with no `compat`
+block (`framework/configstore/clientconfig.go`, `CompatConfig.UnmarshalJSON`:
+an omitted flag is `true`, except `convert_decision_to_responses`):
+
+- `should_convert_params`: lowers a `max_tokens` / `max_completion_tokens` /
+  `max_output_tokens` above the model's catalog limit to that limit
+  (changelog v2.2.6; the flag did nothing in v2.2.2).
+- `force_reasoning_only_models_to_responses`: sends chat completion requests
+  with tools to the Responses API for models the catalog marks as unable to
+  reason with tool calls, and converts the answer back (changelog v2.3.0).
+
+The seed pins both to `false`, which is the v2.2.x behaviour:
+
+```json
+"client": {
+  "compat": {
+    "should_convert_params": false,
+    "force_reasoning_only_models_to_responses": false
+  }
+}
+```
+
+The other compat flags (`convert_text_to_chat`, `convert_chat_to_responses`,
+`should_drop_params`, `azure_deepseek`) are not listed: they exist in v2.2.2
+with the same default (`true`), and an omitted flag stays `true` even when the
+block is present. To change one, list it explicitly.
+
+How it meets `config.db`: the client section is reconciled by hash
+(`loadClientConfig` in `transports/bifrost-http/lib/config.go`, "Case 2b").
+The hash covers `compat`, so a changed value in `config.json` wins over the
+stored one on the next boot, and the whole `client` section is replaced from
+the file. While the seed is unchanged, the stored row wins, so a dashboard
+edit (Settings, Compatibility) survives restarts until the next image changes
+the seed. Checked with a `transports/v2.5.1` `bifrost-http`: a database booted
+without `compat` reported both flags `true`; the same database booted with the
+block reported both `false` (log: "client config was updated in config.json,
+syncing"); removing the block from the file put both back to `true`.
 
 ## Local plugin build (without docker)
 

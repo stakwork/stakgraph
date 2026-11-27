@@ -1,7 +1,8 @@
 import { Storage } from "./store/index.js";
 import { Clue, Usage } from "./types.js";
 import { generateObject, jsonSchema } from "ai";
-import { getApiKeyForProvider, getModel, getProviderOptions, Provider } from "aieo";
+import { getModel, getProviderOptions, Provider } from "aieo";
+import { getApiKeyForProvider } from "../anthropic-federation.js";
 import { addUsage, normalizeUsage } from "aieo";
 import { appendMessages } from "../repo/session.js";
 import { appendGitreeLlmExchange, GitreeSessionTracker } from "./llm.js";

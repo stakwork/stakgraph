@@ -56,6 +56,7 @@ import {
 import { sendIndexWithToken } from "./utils.js";
 import { env } from "./env.js";
 import { useEnv } from "aieo";
+import { federationAwareEnv, warnIfFederationWithoutGateway } from "./anthropic-federation.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -98,7 +99,10 @@ if (!process.env.STRUT_SECRET_KEY && process.env.API_TOKEN) {
 // workflow step cannot read the deployment's keys, and `env` is the copy
 // taken just before. aieo reads per call too (LLM_PROVIDER, the provider
 // keys) — point it at the same copy.
-useEnv(env);
+// In Anthropic federation mode (no key, gateway holds the credential) the
+// Anthropic key reads as a placeholder there, so aieo does not throw.
+useEnv(federationAwareEnv(env));
+warnIfFederationWithoutGateway(env);
 
 // Lab experiments (strut workflows) — bridged before body parsing so strut
 // receives raw request streams for SSE + POST bodies.

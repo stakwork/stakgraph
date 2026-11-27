@@ -264,8 +264,9 @@ async function runState(runId: string): Promise<{ cost_usd: number; steps: numbe
 const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 
 // POST /api/providers takes no keys: bifrost's create payload has no
-// `keys` field (transports/v2.2.2 handlers/providers.go:125-136), so keys
-// sent there are dropped without an error. The key is its own call.
+// `keys` field (providerCreatePayload in transports/v2.5.1
+// handlers/providers.go), so keys sent there are dropped without an error.
+// (PUT /api/providers/{name} now answers 400 to a body with `keys`.) The key is its own call.
 function customProvider(name: string, extra: object = {}) {
   return {
     provider: name,

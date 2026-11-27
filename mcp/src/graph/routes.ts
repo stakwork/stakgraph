@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { getApiKeyForProvider } from "../anthropic-federation.js";
 import { startTracking, endTracking } from "../busy.js";
 import {
   ContainerConfig,
@@ -51,7 +52,6 @@ import {
 } from "../tools/budget.js";
 import {
   PROVIDERS,
-  getApiKeyForProvider,
   getProviderForModel,
   normalizeUsage,
 } from "aieo";

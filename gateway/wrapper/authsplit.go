@@ -46,8 +46,9 @@ import (
 // authHeaderNames is the set of inbound headers Bifrost-http accepts
 // the VK on, in Bifrost's own lookup order. Confirmed against
 // ParseVirtualKeyFromFastHTTPRequest in bifrost
-// plugins/governance/utils.go (transports/v2.2.2); no other inbound
-// header carries the VK. X-Bf-Vk is Bifrost's dedicated VK header;
+// plugins/governance/utils.go (transports/v2.5.1); the only other inbound
+// header it reads is Ocp-Apim-Subscription-Key (Azure AI Speech), which
+// none of our harnesses use and which is deliberately not split here. X-Bf-Vk is Bifrost's dedicated VK header;
 // Api-Key is the Azure OpenAI SDK's.
 //
 // Order matters: we stop at the first present header. If Bifrost

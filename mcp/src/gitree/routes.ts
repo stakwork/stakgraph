@@ -7,8 +7,8 @@ import { Summarizer } from "./summarizer.js";
 import { FileLinker } from "./fileLinker.js";
 import { ClueAnalyzer } from "./clueAnalyzer.js";
 import { Octokit } from "@octokit/rest";
+import { getApiKeyForProvider } from "../anthropic-federation.js";
 import {
-  getApiKeyForProvider,
   getModel,
   getModelDetails,
   getProviderOptions,

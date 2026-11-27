@@ -33,7 +33,7 @@ type s3Client interface {
 }
 
 // newS3Client builds the client the way Bifrost's object store does
-// (framework/objectstore/s3.go NewS3ObjectStore at transports/v2.2.2):
+// (framework/objectstore/s3.go NewS3ObjectStore at transports/v2.5.1):
 // region when given, static credentials when the key pair is given, else
 // the default chain, and BaseEndpoint + path-style when an endpoint is
 // set (the wrapper sets force_path_style exactly then).

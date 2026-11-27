@@ -35,6 +35,12 @@ type fakeCatalog struct {
 
 func (f *fakeCatalog) GetModelInfo(schemas.ModelProvider, string) *schemas.Model { return nil }
 
+// CalculateRequestCostBreakdown joined schemas.ModelInfoProvider in core
+// v1.15; the gateway never reads the breakdown, so the fake has none.
+func (f *fakeCatalog) CalculateRequestCostBreakdown(*schemas.BifrostContext, *schemas.BifrostResponse) *schemas.BifrostCost {
+	return nil
+}
+
 func (f *fakeCatalog) CalculateRequestCost(_ *schemas.BifrostContext, resp *schemas.BifrostResponse) float64 {
 	f.calls++
 	f.seen = resp

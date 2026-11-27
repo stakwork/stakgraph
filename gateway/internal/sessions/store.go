@@ -112,14 +112,14 @@ func NewStore() *Store {
 //
 // Implementation notes
 // --------------------
-// - Two writes happen in a pipeline: HSET the hash, SADD the user's
-//   session index. Pipelining cuts the round-trip in half on the
-//   hot path (every login).
-// - Pipeline failures leave Redis with a partial state at worst (a
-//   hash without an index entry, or vice versa). The hash has a
-//   TTL, so the orphan is bounded. The index lives forever so a
-//   logout-everywhere is still correct. Both kinds of orphan are
-//   harmless (no auth bypass; lookups go through the hash).
+//   - Two writes happen in a pipeline: HSET the hash, SADD the user's
+//     session index. Pipelining cuts the round-trip in half on the
+//     hot path (every login).
+//   - Pipeline failures leave Redis with a partial state at worst (a
+//     hash without an index entry, or vice versa). The hash has a
+//     TTL, so the orphan is bounded. The index lives forever so a
+//     logout-everywhere is still correct. Both kinds of orphan are
+//     harmless (no auth bypass; lookups go through the hash).
 func (s *Store) Create(ctx context.Context, user string) (string, *Session, error) {
 	if s == nil {
 		return "", nil, ErrStoreUnavailable
